@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeterEye - Settings</title>
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* Page-specific styles */
+        .page {
+            display: none;
+        }
+        .page.active {
+            display: block;
+        }
+
+        .preview-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100px;
+            color: var(--text-muted);
+        }
+
+        .output-size-inputs {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .output-size-inputs input {
+            width: 80px;
+        }
+
+        .output-size-inputs span {
+            color: var(--text-muted);
+        }
+
+        /* Zoom controls */
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+        }
+
+        .zoom-controls label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .zoom-controls input[type="range"] {
+            width: 120px;
+        }
+
+        .zoom-controls .zoom-value {
+            min-width: 45px;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .zoom-btn {
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zoom-btn:hover {
+            background: var(--border);
+        }
+
+        .canvas-container {
+            min-height: 500px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <img src="/static/logo.svg" alt="MeterEye" style="width: 32px; height: 32px;">
+            <h1>MeterEye Settings</h1>
+        </div>
+        <nav class="header-nav">
+            <a href="/">Dashboard</a>
+            <a href="/config.html" class="active">Settings</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <!-- Toast Container -->
+        <div id="toastContainer" class="toast-container"></div>
+
+        <!-- Camera List Page -->
+        <div id="pageCameraList" class="page active">
+            <div class="flex-between mb-3">
+                <h2>Cameras</h2>
+                <button class="btn btn-primary" onclick="showAddCameraModal()">+ Add Camera</button>
+            </div>
+
+            <div id="cameraGrid" class="grid grid-3">
+                <!-- Camera cards loaded dynamically -->
+            </div>
+        </div>
+
+        <!-- Camera Detail Page -->
+        <div id="pageCameraDetail" class="page">
+            <nav class="breadcrumb">
+                <a href="#" onclick="showPage('pageCameraList')">Cameras</a>
+                <span class="breadcrumb-separator">/</span>
+                <span id="breadcrumbCameraName" class="breadcrumb-current"></span>
+            </nav>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h2>Camera Settings</h2>
+                    <div class="flex gap-1">
+                        <button class="btn btn-danger btn-sm" onclick="deleteCurrentCamera()">Delete</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form id="cameraForm">
+                        <div class="grid grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Camera ID</label>
+                                <input type="text" id="cameraId" class="form-control" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Name</label>
+                                <input type="text" id="cameraName" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">RTSP URL</label>
+                            <input type="text" id="cameraUrl" class="form-control" placeholder="rtsp://user:pass@ip:port/stream" required>
+                        </div>
+                        <div class="form-group flex-between">
+                            <label class="form-label" style="margin-bottom:0">Enabled</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="cameraEnabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Processing Interval</label>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="range" id="processingInterval" min="0.5" max="10" step="0.5" value="1" style="flex: 1;" oninput="updateProcessingIntervalDisplay()">
+                                <span id="processingIntervalValue" style="min-width: 60px; text-align: center;">1.0 sec</span>
+                            </div>
+                            <p class="form-hint">How often to process frames for meter recognition. Higher = lower CPU usage.</p>
+                        </div>
+                        <div class="flex gap-1 mt-2">
+                            <button type="submit" class="btn btn-primary">Save Camera</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Meters</h2>
+                    <button class="btn btn-primary btn-sm" onclick="showAddMeterModal()">+ Add Meter</button>
+                </div>
+                <div class="card-body">
+                    <div id="meterList" class="meter-list">
+                        <!-- Meters loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Meter Edit Page -->
+        <div id="pageMeterEdit" class="page">
+            <nav class="breadcrumb">
+                <a href="#" onclick="showPage('pageCameraList')">Cameras</a>
+                <span class="breadcrumb-separator">/</span>
+                <a href="#" onclick="showCameraDetail(currentCameraId)" id="breadcrumbCameraLink"></a>
+                <span class="breadcrumb-separator">/</span>
+                <span id="breadcrumbMeterName" class="breadcrumb-current"></span>
+            </nav>
+
+            <div class="perspective-editor">
+                <!-- Canvas Area -->
+                <div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h2>Perspective Selection</h2>
+                            <div class="flex gap-1">
+                                <button class="btn btn-secondary btn-sm" onclick="refreshFrame()">Refresh</button>
+                                <button class="btn btn-danger btn-sm" onclick="perspectiveSelector?.reset()">Reset Points</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="zoom-controls">
+                                <label>Zoom:</label>
+                                <button class="zoom-btn" onclick="zoomOut()">-</button>
+                                <input type="range" id="zoomSlider" min="50" max="500" value="100" onchange="setZoomFromSlider()">
+                                <button class="zoom-btn" onclick="zoomIn()">+</button>
+                                <span class="zoom-value" id="zoomValue">100%</span>
+                                <button class="btn btn-secondary btn-sm" onclick="resetZoom()">Fit</button>
+                            </div>
+                            <div class="canvas-container">
+                                <canvas id="perspectiveCanvas"></canvas>
+                            </div>
+                            <p class="form-hint mt-1">
+                                Click to add points. Drag to move. Scroll to zoom. Ctrl+Drag to pan. Right-click to delete.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Output Size</h2>
+                            <span id="outputSizeLabel" class="text-muted" style="font-size: 0.875rem;">400 x 100 px</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="output-size-inputs">
+                                <input type="number" id="outputWidth" class="form-control" value="400" min="50" max="800">
+                                <span>x</span>
+                                <input type="number" id="outputHeight" class="form-control" value="100" min="30" max="400">
+                                <span>px</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Panel -->
+                <div class="settings-panel">
+                    <div class="settings-section">
+                        <h3>Meter Info</h3>
+                        <div class="form-group">
+                            <label class="form-label">Meter ID</label>
+                            <input type="text" id="meterId" class="form-control" disabled>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" id="meterName" class="form-control" required>
+                        </div>
+                        <div class="form-group flex-between" style="margin-top: 1rem;">
+                            <label class="form-label" style="margin-bottom:0">Show on Dashboard</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="showOnDashboard" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Value Normalization</h3>
+                        <div class="form-group">
+                            <label class="form-label">Expected Digits</label>
+                            <select id="expectedDigits" class="form-control">
+                                <option value="0">Auto-detect</option>
+                                <option value="1">1 digit</option>
+                                <option value="2">2 digits</option>
+                                <option value="3">3 digits</option>
+                                <option value="4">4 digits</option>
+                                <option value="5">5 digits</option>
+                                <option value="6">6 digits</option>
+                            </select>
+                            <p class="form-hint">Fixed mode: divides ROI evenly by digit count (prevents merged digits issue)</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Decimal Places</label>
+                            <select id="decimalPlaces" class="form-control">
+                                <option value="0">None (raw value)</option>
+                                <option value="1">1 (÷10)</option>
+                                <option value="2">2 (÷100)</option>
+                                <option value="3">3 (÷1000)</option>
+                                <option value="4">4 (÷10000)</option>
+                            </select>
+                            <p class="form-hint">e.g., reading "947" with 2 decimals → 9.47</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Unit</label>
+                            <input type="text" id="meterUnit" class="form-control" placeholder="kPa, bar, °C, etc.">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Display Mode</h3>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="displayMode" id="displayLight" value="light_on_dark" checked>
+                                <label for="displayLight">Light on Dark</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="displayMode" id="displayDark" value="dark_on_light">
+                                <label for="displayDark">Dark on Light</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Color Channel</h3>
+                        <select id="colorChannel" class="form-control">
+                            <option value="red">Red</option>
+                            <option value="green">Green</option>
+                            <option value="blue">Blue</option>
+                            <option value="gray">Gray</option>
+                        </select>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Threshold</h3>
+                        <div class="range-slider">
+                            <input type="range" id="threshold" min="0" max="255" value="0">
+                            <span class="range-value" id="thresholdValue">Auto</span>
+                        </div>
+                        <p class="form-hint">0 = Auto (Otsu), 1-255 = Manual</p>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Preview</h3>
+                        <div class="preview-panel">
+                            <div class="preview-image" id="previewTransformed">
+                                <div class="preview-loading">Select 4 points to preview</div>
+                            </div>
+                            <div class="preview-result">
+                                <div class="preview-result-value" id="previewValue">--</div>
+                                <div class="preview-result-label">Raw Value</div>
+                                <div class="preview-result-value" id="previewNormalized" style="margin-top: 0.5rem; color: var(--success);">--</div>
+                                <div class="preview-result-label">Normalized</div>
+                            </div>
+                            <div class="preview-image" id="previewDebug">
+                                <div class="preview-loading">Debug image</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-1 mt-3">
+                        <button class="btn btn-success" onclick="saveMeter()">Save Meter</button>
+                        <button class="btn btn-danger" onclick="deleteMeter()">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Camera Modal -->
+    <div id="addCameraModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Camera</h3>
+                <button class="modal-close" onclick="hideModal('addCameraModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addCameraForm">
+                    <div class="form-group">
+                        <label class="form-label">Camera ID</label>
+                        <input type="text" id="newCameraId" class="form-control" placeholder="cam-01" required pattern="[a-z0-9-]+">
+                        <p class="form-hint">Lowercase letters, numbers, and dashes only</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input type="text" id="newCameraName" class="form-control" placeholder="Main Camera" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">RTSP URL</label>
+                        <input type="text" id="newCameraUrl" class="form-control" placeholder="rtsp://user:pass@ip:port/stream" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('addCameraModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="addCamera()">Add Camera</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Meter Modal -->
+    <div id="addMeterModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Meter</h3>
+                <button class="modal-close" onclick="hideModal('addMeterModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addMeterForm">
+                    <div class="form-group">
+                        <label class="form-label">Meter ID</label>
+                        <input type="text" id="newMeterId" class="form-control" placeholder="meter-01" required pattern="[a-z0-9-]+">
+                        <p class="form-hint">Lowercase letters, numbers, and dashes only</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input type="text" id="newMeterName" class="form-control" placeholder="Pressure Gauge 1" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('addMeterModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="addMeter()">Add Meter</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Delete Modal -->
+    <div id="confirmModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="confirmTitle">Confirm Delete</h3>
+                <button class="modal-close" onclick="hideModal('confirmModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">Are you sure you want to delete this item?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('confirmModal')">Cancel</button>
+                <button class="btn btn-danger" id="confirmButton">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/perspective.js"></script>
+    <script>
+        // State
+        let cameras = [];
+        let currentCameraId = null;
+        let currentMeterId = null;
+        let perspectiveSelector = null;
+        let previewDebounceTimer = null;
+        let hasUnsavedChanges = false;
+
+        // API Functions
+        async function api(method, path, body = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (body) options.body = JSON.stringify(body);
+
+            const response = await fetch(path, options);
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+                throw new Error(error.detail || 'Request failed');
+            }
+            if (response.status === 204) return null;
+            return response.json();
+        }
+
+        // Toast Notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Modal Functions
+        function showModal(id) {
+            document.getElementById(id).classList.add('active');
+        }
+
+        function hideModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        function showConfirm(title, message, onConfirm) {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            document.getElementById('confirmButton').onclick = () => {
+                hideModal('confirmModal');
+                onConfirm();
+            };
+            showModal('confirmModal');
+        }
+
+        // Page Navigation
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+        }
+
+        // Camera List
+        async function loadCameras() {
+            try {
+                cameras = await api('GET', '/api/config/cameras');
+                renderCameraGrid();
+            } catch (e) {
+                showToast('Failed to load cameras: ' + e.message, 'error');
+            }
+        }
+
+        function renderCameraGrid() {
+            const grid = document.getElementById('cameraGrid');
+
+            if (cameras.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1">
+                        <div class="empty-state-icon">📷</div>
+                        <div class="empty-state-title">No cameras configured</div>
+                        <p>Click "Add Camera" to get started</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = cameras.map(cam => `
+                <div class="camera-card">
+                    <div class="camera-card-preview">
+                        <img src="/snapshot/${cam.id}" alt="${cam.name}" onerror="this.style.display='none'">
+                        <span class="camera-card-status ${cam.enabled ? 'status-connected' : 'status-disconnected'}">
+                            ${cam.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                    <div class="camera-card-body">
+                        <div class="camera-card-title">${cam.name}</div>
+                        <div class="camera-card-id">${cam.id} | ${cam.meter_count} meter(s)</div>
+                        <div class="camera-card-actions">
+                            <button class="btn btn-primary btn-sm" onclick="showCameraDetail('${cam.id}')">Configure</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Add Camera
+        function showAddCameraModal() {
+            document.getElementById('addCameraForm').reset();
+            showModal('addCameraModal');
+        }
+
+        async function addCamera() {
+            const id = document.getElementById('newCameraId').value.trim();
+            const name = document.getElementById('newCameraName').value.trim();
+            const url = document.getElementById('newCameraUrl').value.trim();
+
+            if (!id || !name || !url) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+
+            try {
+                await api('POST', '/api/config/cameras', { id, name, url, enabled: true });
+                await saveConfigToFile();
+                hideModal('addCameraModal');
+                notifyConfigChange();
+                showToast('Camera added and saved to file', 'success');
+                loadCameras();
+            } catch (e) {
+                showToast('Failed to add camera: ' + e.message, 'error');
+            }
+        }
+
+        // Camera Detail
+        async function showCameraDetail(cameraId) {
+            currentCameraId = cameraId;
+
+            try {
+                const cam = await api('GET', `/api/config/cameras/${cameraId}`);
+
+                document.getElementById('breadcrumbCameraName').textContent = cam.name;
+                document.getElementById('cameraId').value = cam.id;
+                document.getElementById('cameraName').value = cam.name;
+                document.getElementById('cameraUrl').value = cam.url;
+                document.getElementById('cameraEnabled').checked = cam.enabled;
+                document.getElementById('processingInterval').value = cam.processing_interval_seconds || 1.0;
+                updateProcessingIntervalDisplay();
+
+                // Load meters
+                await loadMeters(cameraId);
+
+                showPage('pageCameraDetail');
+            } catch (e) {
+                showToast('Failed to load camera: ' + e.message, 'error');
+            }
+        }
+
+        // Processing Interval Display
+        function updateProcessingIntervalDisplay() {
+            const value = parseFloat(document.getElementById('processingInterval').value);
+            document.getElementById('processingIntervalValue').textContent = value.toFixed(1) + ' sec';
+        }
+
+        // Camera Form
+        document.getElementById('cameraForm').onsubmit = async (e) => {
+            e.preventDefault();
+
+            const data = {
+                name: document.getElementById('cameraName').value.trim(),
+                url: document.getElementById('cameraUrl').value.trim(),
+                enabled: document.getElementById('cameraEnabled').checked,
+                processing_interval_seconds: parseFloat(document.getElementById('processingInterval').value) || 1.0
+            };
+
+            try {
+                await api('PUT', `/api/config/cameras/${currentCameraId}`, data);
+                await saveConfigToFile();
+                notifyConfigChange();
+                showToast('Camera saved to file', 'success');
+                loadCameras();
+            } catch (e) {
+                showToast('Failed to save camera: ' + e.message, 'error');
+            }
+        };
+
+        async function deleteCurrentCamera() {
+            showConfirm(
+                'Delete Camera',
+                `Are you sure you want to delete camera "${currentCameraId}"? This will also delete all its meters.`,
+                async () => {
+                    try {
+                        await api('DELETE', `/api/config/cameras/${currentCameraId}`);
+                        notifyConfigChange();
+                        showToast('Camera deleted', 'success');
+                        showPage('pageCameraList');
+                        loadCameras();
+                    } catch (e) {
+                        showToast('Failed to delete camera: ' + e.message, 'error');
+                    }
+                }
+            );
+        }
+
+        // Meter List
+        async function loadMeters(cameraId) {
+            try {
+                const meters = await api('GET', `/api/config/cameras/${cameraId}/meters`);
+                renderMeterList(meters);
+            } catch (e) {
+                showToast('Failed to load meters: ' + e.message, 'error');
+            }
+        }
+
+        function renderMeterList(meters) {
+            const list = document.getElementById('meterList');
+
+            if (meters.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <div class="empty-state-title">No meters configured</div>
+                        <p>Click "Add Meter" to configure a meter reading area</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = meters.map(m => `
+                <div class="meter-item">
+                    <div class="meter-info">
+                        <span class="meter-name">${m.name}</span>
+                        <span class="meter-reading">${m.id}</span>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="showMeterEdit('${currentCameraId}', '${m.id}')">
+                        Configure
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Add Meter
+        function showAddMeterModal() {
+            document.getElementById('addMeterForm').reset();
+            showModal('addMeterModal');
+        }
+
+        async function addMeter() {
+            const id = document.getElementById('newMeterId').value.trim();
+            const name = document.getElementById('newMeterName').value.trim();
+
+            if (!id || !name) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+
+            try {
+                await api('POST', `/api/config/cameras/${currentCameraId}/meters`, {
+                    id,
+                    name,
+                    perspective: {
+                        points: [[100, 50], [300, 50], [300, 150], [100, 150]],
+                        output_size: [400, 100]
+                    },
+                    recognition: {
+                        display_mode: 'light_on_dark',
+                        color_channel: 'red',
+                        threshold: 0
+                    }
+                });
+                hideModal('addMeterModal');
+                showToast('Meter added successfully', 'success');
+
+                // Go to meter edit
+                showMeterEdit(currentCameraId, id);
+            } catch (e) {
+                showToast('Failed to add meter: ' + e.message, 'error');
+            }
+        }
+
+        // Meter Edit
+        async function showMeterEdit(cameraId, meterId) {
+            currentCameraId = cameraId;
+            currentMeterId = meterId;
+
+            try {
+                // Load camera name for breadcrumb
+                const cam = await api('GET', `/api/config/cameras/${cameraId}`);
+                document.getElementById('breadcrumbCameraLink').textContent = cam.name;
+
+                // Load meter
+                const meter = await api('GET', `/api/config/cameras/${cameraId}/meters/${meterId}`);
+
+                document.getElementById('breadcrumbMeterName').textContent = meter.name;
+                document.getElementById('meterId').value = meter.id;
+                document.getElementById('meterName').value = meter.name;
+                document.getElementById('showOnDashboard').checked = meter.show_on_dashboard !== false;
+
+                // Normalization settings
+                document.getElementById('expectedDigits').value = meter.expected_digits || 0;
+                document.getElementById('decimalPlaces').value = meter.decimal_places || 0;
+                document.getElementById('meterUnit').value = meter.unit || '';
+
+                // Recognition settings
+                document.querySelector(`input[name="displayMode"][value="${meter.recognition.display_mode}"]`).checked = true;
+                document.getElementById('colorChannel').value = meter.recognition.color_channel;
+                document.getElementById('threshold').value = meter.recognition.threshold;
+                updateThresholdDisplay();
+
+                // Output size
+                document.getElementById('outputWidth').value = meter.perspective.output_size[0];
+                document.getElementById('outputHeight').value = meter.perspective.output_size[1];
+                updateOutputSizeLabel();
+
+                showPage('pageMeterEdit');
+
+                // Initialize perspective selector
+                await initPerspectiveSelector(cameraId, meter.perspective.points);
+
+            } catch (e) {
+                showToast('Failed to load meter: ' + e.message, 'error');
+            }
+        }
+
+        async function initPerspectiveSelector(cameraId, points) {
+            const canvas = document.getElementById('perspectiveCanvas');
+
+            // Destroy existing selector
+            if (perspectiveSelector) {
+                perspectiveSelector.destroy();
+            }
+
+            // Create new selector
+            perspectiveSelector = new PerspectiveSelector(canvas, {
+                onPointsChange: (orderedPoints) => {
+                    hasUnsavedChanges = true;
+                    if (orderedPoints) {
+                        debouncePreview();
+                    }
+                }
+            });
+
+            // Update zoom display when zoom changes
+            perspectiveSelector.onZoomChange = (scale) => {
+                const percent = Math.round(scale * 100);
+                document.getElementById('zoomValue').textContent = percent + '%';
+                document.getElementById('zoomSlider').value = percent;
+            };
+
+            // Load frame
+            try {
+                await perspectiveSelector.setImage(`/api/frame/${cameraId}?t=${Date.now()}`);
+                perspectiveSelector.setPoints(points);
+
+                // Initial preview
+                if (points && points.length === 4) {
+                    updatePreview();
+                }
+            } catch (e) {
+                showToast('Failed to load camera frame', 'error');
+            }
+        }
+
+        async function refreshFrame() {
+            if (perspectiveSelector && currentCameraId) {
+                const points = perspectiveSelector.getPoints();
+                try {
+                    await perspectiveSelector.setImage(`/api/frame/${currentCameraId}?t=${Date.now()}`);
+                    if (points) {
+                        perspectiveSelector.setPoints(points);
+                    }
+                    updatePreview();
+                } catch (e) {
+                    showToast('Failed to refresh frame', 'error');
+                }
+            }
+        }
+
+        // Zoom Controls
+        function zoomIn() {
+            if (perspectiveSelector) {
+                perspectiveSelector.setZoom(perspectiveSelector.scale * 1.25);
+            }
+        }
+
+        function zoomOut() {
+            if (perspectiveSelector) {
+                perspectiveSelector.setZoom(perspectiveSelector.scale * 0.8);
+            }
+        }
+
+        function setZoomFromSlider() {
+            if (perspectiveSelector) {
+                const percent = parseInt(document.getElementById('zoomSlider').value);
+                perspectiveSelector.setZoom(percent / 100);
+            }
+        }
+
+        function resetZoom() {
+            if (perspectiveSelector) {
+                perspectiveSelector.resetView();
+            }
+        }
+
+        // Threshold Display
+        function updateThresholdDisplay() {
+            const value = document.getElementById('threshold').value;
+            document.getElementById('thresholdValue').textContent = value === '0' ? 'Auto' : value;
+        }
+
+        document.getElementById('threshold').oninput = () => {
+            updateThresholdDisplay();
+            debouncePreview();
+        };
+
+        // Update output size label
+        function updateOutputSizeLabel() {
+            const w = document.getElementById('outputWidth').value || 400;
+            const h = document.getElementById('outputHeight').value || 100;
+            document.getElementById('outputSizeLabel').textContent = `${w} x ${h} px`;
+        }
+
+        // Recognition settings change handlers
+        document.querySelectorAll('input[name="displayMode"]').forEach(el => {
+            el.onchange = debouncePreview;
+        });
+        document.getElementById('colorChannel').onchange = debouncePreview;
+        document.getElementById('outputWidth').onchange = () => { updateOutputSizeLabel(); debouncePreview(); };
+        document.getElementById('outputHeight').onchange = () => { updateOutputSizeLabel(); debouncePreview(); };
+        document.getElementById('outputWidth').oninput = updateOutputSizeLabel;
+        document.getElementById('outputHeight').oninput = updateOutputSizeLabel;
+
+        // Normalization settings change handlers (update preview to recalculate normalized value)
+        document.getElementById('expectedDigits').onchange = debouncePreview;
+        document.getElementById('decimalPlaces').onchange = debouncePreview;
+        document.getElementById('meterUnit').oninput = debouncePreview;
+
+        // Preview
+        function debouncePreview() {
+            clearTimeout(previewDebounceTimer);
+            previewDebounceTimer = setTimeout(updatePreview, 300);
+        }
+
+        async function updatePreview() {
+            const points = perspectiveSelector?.getPoints();
+            if (!points || points.length !== 4) {
+                document.getElementById('previewTransformed').innerHTML = '<div class="preview-loading">Select 4 points to preview</div>';
+                document.getElementById('previewDebug').innerHTML = '<div class="preview-loading">Debug image</div>';
+                document.getElementById('previewValue').textContent = '--';
+                document.getElementById('previewNormalized').textContent = '--';
+                return;
+            }
+
+            const displayMode = document.querySelector('input[name="displayMode"]:checked').value;
+            const colorChannel = document.getElementById('colorChannel').value;
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const expectedDigits = parseInt(document.getElementById('expectedDigits').value) || 0;
+            const outputWidth = parseInt(document.getElementById('outputWidth').value) || 400;
+            const outputHeight = parseInt(document.getElementById('outputHeight').value) || 100;
+
+            try {
+                const result = await api('POST', '/api/preview/perspective', {
+                    camera_id: currentCameraId,
+                    points,
+                    output_size: [outputWidth, outputHeight],
+                    display_mode: displayMode,
+                    color_channel: colorChannel,
+                    threshold,
+                    expected_digits: expectedDigits
+                });
+
+                document.getElementById('previewTransformed').innerHTML =
+                    `<img src="data:image/jpeg;base64,${result.transformed_image}" alt="Transformed">`;
+                document.getElementById('previewDebug').innerHTML =
+                    `<img src="data:image/jpeg;base64,${result.debug_image}" alt="Debug">`;
+                document.getElementById('previewValue').textContent =
+                    result.recognized_text || '--';
+
+                // Calculate and display normalized value
+                const decimalPlaces = parseInt(document.getElementById('decimalPlaces').value) || 0;
+                const unit = document.getElementById('meterUnit').value.trim();
+                if (result.recognized_value !== null && result.recognized_value !== undefined) {
+                    const normalized = decimalPlaces > 0
+                        ? (result.recognized_value / Math.pow(10, decimalPlaces)).toFixed(decimalPlaces)
+                        : result.recognized_value;
+                    document.getElementById('previewNormalized').textContent = normalized + (unit ? ' ' + unit : '');
+                } else {
+                    document.getElementById('previewNormalized').textContent = '--';
+                }
+
+            } catch (e) {
+                showToast('Preview failed: ' + e.message, 'error');
+            }
+        }
+
+        // Notify dashboard of config changes
+        function notifyConfigChange() {
+            localStorage.setItem('configChanged', Date.now().toString());
+        }
+
+        // Save Meter
+        async function saveMeter() {
+            const points = perspectiveSelector?.getPoints();
+            if (!points || points.length !== 4) {
+                showToast('Please select 4 perspective points', 'error');
+                return;
+            }
+
+            const data = {
+                name: document.getElementById('meterName').value.trim(),
+                perspective: {
+                    points,
+                    output_size: [
+                        parseInt(document.getElementById('outputWidth').value) || 400,
+                        parseInt(document.getElementById('outputHeight').value) || 100
+                    ]
+                },
+                recognition: {
+                    display_mode: document.querySelector('input[name="displayMode"]:checked').value,
+                    color_channel: document.getElementById('colorChannel').value,
+                    threshold: parseInt(document.getElementById('threshold').value)
+                },
+                show_on_dashboard: document.getElementById('showOnDashboard').checked,
+                expected_digits: parseInt(document.getElementById('expectedDigits').value) || 0,
+                decimal_places: parseInt(document.getElementById('decimalPlaces').value) || 0,
+                unit: document.getElementById('meterUnit').value.trim()
+            };
+
+            try {
+                await api('PUT', `/api/config/cameras/${currentCameraId}/meters/${currentMeterId}`, data);
+                // Save to file and apply changes
+                await saveConfigToFile();
+                await reloadConfig();
+                hasUnsavedChanges = false;
+                notifyConfigChange();
+                showToast('Meter saved and applied', 'success');
+            } catch (e) {
+                showToast('Failed to save meter: ' + e.message, 'error');
+            }
+        }
+
+        // Delete Meter
+        function deleteMeter() {
+            showConfirm(
+                'Delete Meter',
+                `Are you sure you want to delete meter "${currentMeterId}"?`,
+                async () => {
+                    try {
+                        await api('DELETE', `/api/config/cameras/${currentCameraId}/meters/${currentMeterId}`);
+                        notifyConfigChange();
+                        showToast('Meter deleted', 'success');
+                        showCameraDetail(currentCameraId);
+                    } catch (e) {
+                        showToast('Failed to delete meter: ' + e.message, 'error');
+                    }
+                }
+            );
+        }
+
+        // Save Config to File
+        async function saveConfigToFile() {
+            try {
+                const result = await api('POST', '/api/config/save');
+                if (!result.success) {
+                    throw new Error(result.message);
+                }
+            } catch (e) {
+                showToast('Failed to save config: ' + e.message, 'error');
+                throw e;
+            }
+        }
+
+        // Reload Config (hot reload)
+        async function reloadConfig() {
+            try {
+                const result = await api('POST', '/api/config/reload');
+                if (result.success) {
+                    console.log('Config reloaded, cameras updated:', result.cameras_updated);
+                } else {
+                    console.error('Failed to reload config:', result.message);
+                }
+            } catch (e) {
+                console.error('Failed to reload config:', e.message);
+            }
+        }
+
+        // Unsaved changes warning
+        window.onbeforeunload = (e) => {
+            if (hasUnsavedChanges) {
+                e.preventDefault();
+                return 'You have unsaved changes. Are you sure you want to leave?';
+            }
+        };
+
+        // Initialize
+        loadCameras();
+    </script>
+</body>
+</html>

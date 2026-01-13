@@ -1,0 +1,35 @@
+[project]
+name = "ctme"
+version = "1.0.0"
+description = "MeterEye - Multi-camera meter monitoring with 7-segment display recognition"
+readme = "README.md"
+authors = [
+    { name = "ChingTech", email = "info@ching-tech.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python>=4.8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+]
+db = [
+    "sqlalchemy>=2.0.0",
+]
+mqtt = [
+    "paho-mqtt>=2.0.0",
+]
+all = [
+    "ctme[api,db,mqtt]",
+]
+
+[project.scripts]
+ctme = "ctme.main:main"
+
+[build-system]
+requires = ["uv_build>=0.8.4,<0.9.0"]
+build-backend = "uv_build"

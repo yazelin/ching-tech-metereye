@@ -1,0 +1,73 @@
+# MeterEye Multi-Camera Configuration
+# Copy this file to ~/.config/ctme/config.yaml
+
+# Camera configurations
+cameras:
+  - id: cam-01
+    name: "生產線 A"
+    url: "${CAM01_RTSP_URL}"  # Set environment variable or replace with actual URL
+    enabled: true
+    processing_interval_seconds: 1.0  # How often to process frames (seconds). Higher = lower CPU usage
+    meters:
+      - id: meter-01
+        name: "壓力表 1"
+        perspective:
+          points: [[100, 50], [300, 50], [300, 150], [100, 150]]  # TL, TR, BR, BL
+          output_size: [400, 100]
+        recognition:
+          display_mode: light_on_dark  # or dark_on_light
+          color_channel: red  # red, green, blue, gray
+          threshold: 0  # 0 = auto (Otsu), 1-255 = manual
+
+      - id: meter-02
+        name: "壓力表 2"
+        perspective:
+          points: [[350, 50], [550, 50], [550, 150], [350, 150]]
+          output_size: [400, 100]
+        recognition:
+          display_mode: light_on_dark
+          color_channel: green
+          threshold: 0
+
+  # Add more cameras as needed
+  # - id: cam-02
+  #   name: "生產線 B"
+  #   url: "${CAM02_RTSP_URL}"
+  #   enabled: true
+  #   meters: []
+
+# Data export settings
+export:
+  # HTTP POST to external API
+  http:
+    enabled: false
+    url: "http://host-pc:8080/api/readings"
+    interval_seconds: 5
+    batch_size: 10
+    headers:
+      Authorization: "Bearer ${API_TOKEN:-}"
+    timeout_seconds: 10
+
+  # Database storage
+  database:
+    enabled: false
+    type: sqlite  # sqlite or postgresql
+    path: "./readings.db"
+    # connection_string: "postgresql://user:pass@localhost/ctme"  # for postgresql
+    retention_days: 30  # auto-delete old records
+
+  # MQTT publish
+  mqtt:
+    enabled: false
+    broker: "mqtt.local"
+    port: 1883
+    topic: "ctme/{camera_id}/{meter_id}"  # supports placeholders
+    qos: 1
+    username: ""
+    password: ""
+
+# REST API server
+server:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8000

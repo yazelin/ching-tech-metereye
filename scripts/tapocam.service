@@ -1,0 +1,30 @@
+[Unit]
+Description=TapoCam Multi-Camera Monitoring Service
+Documentation=https://github.com/youruser/tapocam
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tapocam
+Group=tapocam
+WorkingDirectory=/opt/tapocam
+Environment="PATH=/opt/tapocam/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/etc/tapocam/environment
+ExecStart=/opt/tapocam/.venv/bin/tapocam --headless --config /etc/tapocam/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tapocam
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/tapocam
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeterEye NVR</title>
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--gray-900);
+            color: var(--gray-100);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: var(--gray-800);
+            padding: 0.5rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--gray-700);
+            flex-shrink: 0;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: white;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            background: var(--gray-700);
+            border-radius: 1rem;
+            font-size: 0.75rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+
+        .status-dot.disconnected {
+            background: var(--danger);
+        }
+
+        /* Layout Controls */
+        .layout-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .layout-btn {
+            width: 36px;
+            height: 36px;
+            border: 1px solid var(--gray-600);
+            background: var(--gray-800);
+            border-radius: 0.375rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+            padding: 6px;
+        }
+
+        .layout-btn:hover {
+            background: var(--gray-700);
+            border-color: var(--gray-500);
+        }
+
+        .layout-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .layout-btn svg {
+            width: 100%;
+            height: 100%;
+            stroke: var(--gray-300);
+            fill: none;
+        }
+
+        .layout-btn.active svg {
+            stroke: white;
+        }
+
+        .divider {
+            width: 1px;
+            height: 24px;
+            background: var(--gray-600);
+            margin: 0 0.25rem;
+        }
+
+        .icon-btn {
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: transparent;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--gray-400);
+            transition: all 0.15s;
+        }
+
+        .icon-btn:hover {
+            background: var(--gray-700);
+            color: white;
+        }
+
+        .icon-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Stats */
+        .stats {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: var(--gray-400);
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .stat-value {
+            color: white;
+            font-weight: 500;
+        }
+
+        /* Main Grid */
+        .main {
+            flex: 1;
+            padding: 0.5rem;
+            overflow: hidden;
+        }
+
+        .camera-grid {
+            display: grid;
+            gap: 0.5rem;
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+
+        .camera-grid.layout-1x1 {
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+        }
+
+        .camera-grid.layout-2x2 {
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+        }
+
+        .camera-grid.layout-3x3 {
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+        }
+
+        .camera-grid.layout-4x4 {
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+        }
+
+        /* Camera Cell */
+        .camera-cell {
+            position: relative;
+            background: var(--gray-800);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .camera-cell:hover {
+            box-shadow: 0 0 0 2px var(--primary);
+        }
+
+        .camera-cell.expanded {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 100;
+            border-radius: 0;
+        }
+
+        .camera-cell.hidden {
+            display: none;
+        }
+
+        /* Video */
+        .video-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        .video-stream {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: black;
+        }
+
+        /* Camera Overlay */
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 0.5rem 0.75rem;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            pointer-events: none;
+        }
+
+        .camera-name {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .camera-id-badge {
+            font-size: 0.625rem;
+            color: var(--gray-300);
+            background: rgba(0,0,0,0.5);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            margin-left: 0.5rem;
+        }
+
+        .camera-status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 6px var(--success);
+        }
+
+        .camera-status-indicator.disconnected {
+            background: var(--danger);
+            box-shadow: 0 0 6px var(--danger);
+        }
+
+        .camera-status-indicator.reconnecting {
+            background: var(--warning);
+            box-shadow: 0 0 6px var(--warning);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Bottom Info Bar */
+        .camera-info-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 0.5rem 0.75rem;
+            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            pointer-events: none;
+        }
+
+        .meter-readings {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .meter-reading {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .meter-label {
+            color: var(--gray-400);
+        }
+
+        .meter-value {
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--success);
+            text-shadow: 0 0 10px var(--success);
+        }
+
+        .meter-value.no-reading {
+            color: var(--gray-500);
+            text-shadow: none;
+        }
+
+        .camera-meta {
+            font-size: 0.625rem;
+            color: var(--gray-400);
+            text-align: right;
+        }
+
+        /* Placeholder */
+        .video-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--gray-500);
+        }
+
+        .video-placeholder svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 0.5rem;
+            opacity: 0.5;
+        }
+
+        /* Compact mode (hide readings in small cells) */
+        .camera-grid.layout-3x3 .meter-readings,
+        .camera-grid.layout-4x4 .meter-readings {
+            display: none;
+        }
+
+        .camera-grid.layout-3x3 .camera-name,
+        .camera-grid.layout-4x4 .camera-name {
+            font-size: 0.75rem;
+        }
+
+        .camera-grid.layout-3x3 .camera-id-badge,
+        .camera-grid.layout-4x4 .camera-id-badge {
+            display: none;
+        }
+
+        /* Fullscreen */
+        body.fullscreen .header {
+            display: none;
+        }
+
+        body.fullscreen .main {
+            padding: 0;
+        }
+
+        body.fullscreen .camera-cell {
+            border-radius: 0;
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--gray-500);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--gray-700);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Keyboard hint */
+        .keyboard-hint {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            background: var(--gray-800);
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--gray-400);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .keyboard-hint.show {
+            opacity: 1;
+        }
+
+        .keyboard-hint kbd {
+            background: var(--gray-700);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            margin: 0 0.125rem;
+        }
+
+        /* Meter List Panel */
+        .meter-list-panel {
+            position: fixed;
+            top: 60px;
+            right: 0;
+            width: 280px;
+            max-height: calc(100vh - 70px);
+            background: var(--gray-800);
+            border-left: 1px solid var(--gray-700);
+            border-bottom-left-radius: 0.5rem;
+            z-index: 50;
+            transition: transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .meter-list-panel.collapsed {
+            transform: translateX(calc(100% - 32px));
+        }
+
+        .meter-list-panel .panel-toggle {
+            position: absolute;
+            left: -32px;
+            top: 0;
+            width: 32px;
+            height: 40px;
+            background: var(--gray-800);
+            border: 1px solid var(--gray-700);
+            border-right: none;
+            border-radius: 0.5rem 0 0 0.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--gray-400);
+        }
+
+        .meter-list-panel .panel-toggle:hover {
+            background: var(--gray-700);
+            color: white;
+        }
+
+        .meter-list-panel .panel-toggle svg {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.3s;
+        }
+
+        .meter-list-panel.collapsed .panel-toggle svg {
+            transform: rotate(180deg);
+        }
+
+        .meter-list-panel .panel-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--gray-700);
+            font-weight: 500;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .meter-list-panel .panel-header .meter-count {
+            font-size: 0.75rem;
+            color: var(--gray-400);
+            font-weight: normal;
+        }
+
+        .meter-list-panel .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem 0;
+        }
+
+        .meter-list-item {
+            padding: 0.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.125rem;
+            border-bottom: 1px solid var(--gray-700);
+        }
+
+        .meter-list-item:last-child {
+            border-bottom: none;
+        }
+
+        .meter-list-item .meter-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .meter-list-item .meter-name {
+            font-size: 0.875rem;
+            color: white;
+        }
+
+        .meter-list-item .meter-reading-value {
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .meter-list-item .meter-reading-value.no-reading {
+            color: var(--gray-500);
+        }
+
+        .meter-list-item .camera-name {
+            font-size: 0.625rem;
+            color: var(--gray-500);
+        }
+
+        body.fullscreen .meter-list-panel {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <img src="/static/logo.svg" alt="MeterEye" style="width: 32px; height: 32px;">
+            <h1>MeterEye NVR</h1>
+            <div class="status-badge">
+                <span class="status-dot" id="systemStatusDot"></span>
+                <span id="systemStatus">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="layout-controls">
+            <button class="layout-btn" data-layout="1x1" title="1x1 (Press 1)">
+                <svg viewBox="0 0 24 24" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                </svg>
+            </button>
+            <button class="layout-btn active" data-layout="2x2" title="2x2 (Press 2)">
+                <svg viewBox="0 0 24 24" stroke-width="2">
+                    <rect x="3" y="3" width="8" height="8" rx="1"/>
+                    <rect x="13" y="3" width="8" height="8" rx="1"/>
+                    <rect x="3" y="13" width="8" height="8" rx="1"/>
+                    <rect x="13" y="13" width="8" height="8" rx="1"/>
+                </svg>
+            </button>
+            <button class="layout-btn" data-layout="3x3" title="3x3 (Press 3)">
+                <svg viewBox="0 0 24 24" stroke-width="2">
+                    <rect x="3" y="3" width="5" height="5" rx="0.5"/>
+                    <rect x="9.5" y="3" width="5" height="5" rx="0.5"/>
+                    <rect x="16" y="3" width="5" height="5" rx="0.5"/>
+                    <rect x="3" y="9.5" width="5" height="5" rx="0.5"/>
+                    <rect x="9.5" y="9.5" width="5" height="5" rx="0.5"/>
+                    <rect x="16" y="9.5" width="5" height="5" rx="0.5"/>
+                    <rect x="3" y="16" width="5" height="5" rx="0.5"/>
+                    <rect x="9.5" y="16" width="5" height="5" rx="0.5"/>
+                    <rect x="16" y="16" width="5" height="5" rx="0.5"/>
+                </svg>
+            </button>
+            <button class="layout-btn" data-layout="4x4" title="4x4 (Press 4)">
+                <svg viewBox="0 0 24 24" stroke-width="1.5">
+                    <rect x="3" y="3" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="7.5" y="3" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="12" y="3" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="16.5" y="3" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="3" y="7.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="7.5" y="7.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="12" y="7.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="16.5" y="7.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="3" y="12" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="7.5" y="12" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="12" y="12" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="16.5" y="12" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="3" y="16.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="7.5" y="16.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="12" y="16.5" width="3.5" height="3.5" rx="0.5"/>
+                    <rect x="16.5" y="16.5" width="3.5" height="3.5" rx="0.5"/>
+                </svg>
+            </button>
+
+            <span class="divider"></span>
+
+            <button class="icon-btn" id="fullscreenBtn" title="Fullscreen (Press F)">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                </svg>
+            </button>
+
+            <a href="/config.html" class="icon-btn" title="Settings">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+            </a>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <span>Cameras:</span>
+                <span class="stat-value" id="cameraCount">-</span>
+            </div>
+            <div class="stat-item">
+                <span>Connected:</span>
+                <span class="stat-value" id="connectedCount">-</span>
+            </div>
+            <div class="stat-item">
+                <span>Readings:</span>
+                <span class="stat-value" id="readingCount">-</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div id="cameraGrid" class="camera-grid layout-2x2">
+            <div class="loading">
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </main>
+
+    <div class="keyboard-hint" id="keyboardHint">
+        <kbd>1</kbd>-<kbd>4</kbd> Layout
+        <kbd>F</kbd> Fullscreen
+        <kbd>M</kbd> Meters
+        <kbd>ESC</kbd> Exit
+    </div>
+
+    <!-- Meter List Panel -->
+    <div id="meterListPanel" class="meter-list-panel">
+        <button class="panel-toggle" onclick="toggleMeterPanel()" title="Toggle Meter List (Press M)">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+        </button>
+        <div class="panel-header">
+            <span>All Meters</span>
+            <span class="meter-count" id="meterListCount">0</span>
+        </div>
+        <div class="panel-content" id="meterListContent">
+            <!-- Populated by JavaScript -->
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let currentLayout = localStorage.getItem('nvrLayout') || '2x2';
+        let expandedCamera = null;
+        let cameras = [];
+        let lastConfigChange = localStorage.getItem('configChanged') || '0';
+        let meterPanelCollapsed = localStorage.getItem('meterPanelCollapsed') === 'true';
+
+        // Meter List Panel
+        function toggleMeterPanel() {
+            meterPanelCollapsed = !meterPanelCollapsed;
+            localStorage.setItem('meterPanelCollapsed', meterPanelCollapsed);
+            updateMeterPanelState();
+        }
+
+        function updateMeterPanelState() {
+            const panel = document.getElementById('meterListPanel');
+            if (meterPanelCollapsed) {
+                panel.classList.add('collapsed');
+            } else {
+                panel.classList.remove('collapsed');
+            }
+        }
+
+        function updateMeterList() {
+            const content = document.getElementById('meterListContent');
+            const countEl = document.getElementById('meterListCount');
+
+            // Gather all meters from all cameras
+            const allMeters = [];
+            for (const camera of cameras) {
+                if (camera.meters) {
+                    for (const meter of camera.meters) {
+                        if (meter.show_on_dashboard !== false) {
+                            allMeters.push({
+                                cameraId: camera.camera_id,
+                                cameraName: camera.name,
+                                ...meter
+                            });
+                        }
+                    }
+                }
+            }
+
+            countEl.textContent = allMeters.length;
+
+            if (allMeters.length === 0) {
+                content.innerHTML = '<div style="padding: 1rem; color: var(--gray-500); text-align: center;">No meters configured</div>';
+                return;
+            }
+
+            content.innerHTML = allMeters.map(meter => {
+                const rawValue = meter.normalized_value !== null ? meter.normalized_value : meter.last_value;
+                let displayValue = '--';
+                if (rawValue !== null) {
+                    const decimalPlaces = meter.decimal_places || 0;
+                    displayValue = decimalPlaces > 0 ? rawValue.toFixed(decimalPlaces) : rawValue;
+                    if (meter.unit) displayValue += ' ' + meter.unit;
+                }
+                const valueClass = rawValue !== null ? '' : 'no-reading';
+
+                return `
+                    <div class="meter-list-item">
+                        <div class="meter-info">
+                            <span class="meter-name">${meter.name}</span>
+                            <span class="meter-reading-value ${valueClass}">${displayValue}</span>
+                        </div>
+                        <span class="camera-name">${meter.cameraName}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Layout management
+        function setLayout(layout) {
+            currentLayout = layout;
+            localStorage.setItem('nvrLayout', layout);
+
+            const grid = document.getElementById('cameraGrid');
+            grid.className = `camera-grid layout-${layout}`;
+
+            document.querySelectorAll('.layout-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.layout === layout);
+            });
+
+            // Exit expanded mode
+            if (expandedCamera) {
+                exitExpanded();
+            }
+        }
+
+        // Expand single camera
+        function expandCamera(cameraId) {
+            if (expandedCamera === cameraId) {
+                exitExpanded();
+                return;
+            }
+
+            expandedCamera = cameraId;
+
+            document.querySelectorAll('.camera-cell').forEach(cell => {
+                if (cell.dataset.cameraId === cameraId) {
+                    cell.classList.add('expanded');
+                } else {
+                    cell.classList.add('hidden');
+                }
+            });
+        }
+
+        function exitExpanded() {
+            expandedCamera = null;
+            document.querySelectorAll('.camera-cell').forEach(cell => {
+                cell.classList.remove('expanded', 'hidden');
+            });
+        }
+
+        // Fullscreen
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+                document.body.classList.add('fullscreen');
+            } else {
+                document.exitFullscreen();
+                document.body.classList.remove('fullscreen');
+            }
+        }
+
+        // Create camera cell HTML
+        function createCameraCell(camera) {
+            const statusClass = camera.status.toLowerCase();
+            const streamUrl = `${API_BASE}/stream/${camera.camera_id}`;
+
+            let metersHtml = '';
+            if (camera.meters && camera.meters.length > 0) {
+                metersHtml = camera.meters
+                    .filter(meter => meter.show_on_dashboard !== false)
+                    .map(meter => {
+                        const rawValue = meter.normalized_value !== null ? meter.normalized_value : meter.last_value;
+                        let displayValue = '--';
+                        if (rawValue !== null) {
+                            const decimalPlaces = meter.decimal_places || 0;
+                            displayValue = decimalPlaces > 0 ? rawValue.toFixed(decimalPlaces) : rawValue;
+                            if (meter.unit) displayValue += ' ' + meter.unit;
+                        }
+                        const valueClass = rawValue !== null ? '' : 'no-reading';
+                        return `
+                            <div class="meter-reading">
+                                <span class="meter-label">${meter.name}:</span>
+                                <span class="meter-value ${valueClass}">${displayValue}</span>
+                            </div>
+                        `;
+                    }).join('');
+            }
+
+            return `
+                <div class="camera-cell" data-camera-id="${camera.camera_id}">
+                    <div class="video-wrapper">
+                        ${camera.status === 'connected'
+                            ? `<img class="video-stream" src="${streamUrl}" alt="${camera.name}">`
+                            : `<div class="video-placeholder">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                <div>${camera.error_message || 'Disconnected'}</div>
+                            </div>`
+                        }
+                    </div>
+                    <div class="camera-overlay">
+                        <div>
+                            <span class="camera-name">${camera.name}</span>
+                            <span class="camera-id-badge">${camera.camera_id}</span>
+                        </div>
+                        <div class="camera-status-indicator ${statusClass}"></div>
+                    </div>
+                    <div class="camera-info-bar">
+                        <div class="meter-readings">${metersHtml}</div>
+                        <div class="camera-meta">
+                            ${camera.fps ? `${camera.fps.toFixed(1)} FPS` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Update status
+        async function updateStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status`);
+                const data = await response.json();
+
+                document.getElementById('cameraCount').textContent = data.camera_count;
+                document.getElementById('connectedCount').textContent = data.connected_cameras;
+                document.getElementById('readingCount').textContent = data.total_readings.toLocaleString();
+
+                const statusDot = document.getElementById('systemStatusDot');
+                const statusText = document.getElementById('systemStatus');
+
+                if (data.connected_cameras > 0) {
+                    statusDot.classList.remove('disconnected');
+                    statusText.textContent = `${data.connected_cameras}/${data.camera_count} Online`;
+                } else if (data.camera_count > 0) {
+                    statusDot.classList.add('disconnected');
+                    statusText.textContent = 'All Offline';
+                } else {
+                    statusDot.classList.add('disconnected');
+                    statusText.textContent = 'No Cameras';
+                }
+            } catch (error) {
+                document.getElementById('systemStatusDot').classList.add('disconnected');
+                document.getElementById('systemStatus').textContent = 'Error';
+            }
+        }
+
+        // Load cameras
+        async function loadCameras() {
+            const grid = document.getElementById('cameraGrid');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/cameras`);
+                const cameraList = await response.json();
+
+                // Fetch details for each camera
+                cameras = await Promise.all(
+                    cameraList.map(async (cam) => {
+                        try {
+                            const res = await fetch(`${API_BASE}/api/cameras/${cam.camera_id}`);
+                            return await res.json();
+                        } catch {
+                            return cam;
+                        }
+                    })
+                );
+
+                if (cameras.length === 0) {
+                    grid.innerHTML = `
+                        <div class="empty-state">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <h3>No cameras configured</h3>
+                            <p>Add cameras to config.yaml to get started.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                grid.innerHTML = cameras.map(createCameraCell).join('');
+
+                // Add click handlers
+                document.querySelectorAll('.camera-cell').forEach(cell => {
+                    cell.addEventListener('click', () => {
+                        expandCamera(cell.dataset.cameraId);
+                    });
+                });
+
+                // Auto-select best layout
+                if (!localStorage.getItem('nvrLayout')) {
+                    if (cameras.length <= 1) setLayout('1x1');
+                    else if (cameras.length <= 4) setLayout('2x2');
+                    else if (cameras.length <= 9) setLayout('3x3');
+                    else setLayout('4x4');
+                }
+
+                // Initialize meter list panel
+                updateMeterList();
+
+            } catch (error) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <h3>Connection Error</h3>
+                        <p>Failed to connect to server.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Update readings only (not full reload)
+        async function updateReadings() {
+            try {
+                for (const camera of cameras) {
+                    const res = await fetch(`${API_BASE}/api/cameras/${camera.camera_id}`);
+                    const detail = await res.json();
+
+                    const cell = document.querySelector(`[data-camera-id="${camera.camera_id}"]`);
+                    if (!cell) continue;
+
+                    // Update status indicator
+                    const indicator = cell.querySelector('.camera-status-indicator');
+                    indicator.className = `camera-status-indicator ${detail.status.toLowerCase()}`;
+
+                    // Update meter readings
+                    if (detail.meters && detail.meters.length > 0) {
+                        const readingsEl = cell.querySelector('.meter-readings');
+                        if (readingsEl) {
+                            readingsEl.innerHTML = detail.meters
+                                .filter(meter => meter.show_on_dashboard !== false)
+                                .map(meter => {
+                                    const rawValue = meter.normalized_value !== null ? meter.normalized_value : meter.last_value;
+                                    let displayValue = '--';
+                                    if (rawValue !== null) {
+                                        const decimalPlaces = meter.decimal_places || 0;
+                                        displayValue = decimalPlaces > 0 ? rawValue.toFixed(decimalPlaces) : rawValue;
+                                        if (meter.unit) displayValue += ' ' + meter.unit;
+                                    }
+                                    const valueClass = rawValue !== null ? '' : 'no-reading';
+                                    return `
+                                        <div class="meter-reading">
+                                            <span class="meter-label">${meter.name}:</span>
+                                            <span class="meter-value ${valueClass}">${displayValue}</span>
+                                        </div>
+                                    `;
+                                }).join('');
+                        }
+                    }
+
+                    // Update FPS
+                    const meta = cell.querySelector('.camera-meta');
+                    if (meta && detail.fps) {
+                        meta.textContent = `${detail.fps.toFixed(1)} FPS`;
+                    }
+
+                    // Update camera object
+                    Object.assign(camera, detail);
+                }
+
+                // Update meter list panel
+                updateMeterList();
+            } catch (error) {
+                console.error('Failed to update readings:', error);
+            }
+        }
+
+        // Check for config changes and reload if needed
+        function checkConfigChanges() {
+            const currentChange = localStorage.getItem('configChanged') || '0';
+            if (currentChange !== lastConfigChange) {
+                lastConfigChange = currentChange;
+                console.log('Config changed, reloading cameras...');
+                loadCameras();
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+
+            switch(e.key) {
+                case '1':
+                    setLayout('1x1');
+                    break;
+                case '2':
+                    setLayout('2x2');
+                    break;
+                case '3':
+                    setLayout('3x3');
+                    break;
+                case '4':
+                    setLayout('4x4');
+                    break;
+                case 'f':
+                case 'F':
+                    toggleFullscreen();
+                    break;
+                case 'm':
+                case 'M':
+                    toggleMeterPanel();
+                    break;
+                case 'Escape':
+                    if (expandedCamera) {
+                        exitExpanded();
+                    } else if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    }
+                    break;
+            }
+        });
+
+        // Show keyboard hint briefly
+        function showKeyboardHint() {
+            const hint = document.getElementById('keyboardHint');
+            hint.classList.add('show');
+            setTimeout(() => hint.classList.remove('show'), 3000);
+        }
+
+        // Event listeners
+        document.querySelectorAll('.layout-btn').forEach(btn => {
+            btn.addEventListener('click', () => setLayout(btn.dataset.layout));
+        });
+
+        document.getElementById('fullscreenBtn').addEventListener('click', toggleFullscreen);
+
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                document.body.classList.remove('fullscreen');
+            }
+        });
+
+        // Initialize
+        async function init() {
+            setLayout(currentLayout);
+            updateMeterPanelState();
+            await updateStatus();
+            await loadCameras();
+            showKeyboardHint();
+
+            // Poll for updates
+            setInterval(updateStatus, 2000);
+            setInterval(updateReadings, 1000);
+            setInterval(checkConfigChanges, 2000);
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
