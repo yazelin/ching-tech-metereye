@@ -13,7 +13,7 @@ except ImportError:
     MQTT_AVAILABLE = False
 
 from ctme.export.base import BaseExporter
-from ctme.models import MQTTExportConfig, Reading
+from ctme.models import IndicatorReading, MQTTExportConfig, Reading
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class MQTTExporter(BaseExporter):
                 self._connected = False
 
     def _get_topic(self, reading: Reading) -> str:
-        """Get MQTT topic for a reading.
+        """Get MQTT topic for a meter reading.
 
         Supports placeholders: {camera_id}, {meter_id}
 
@@ -116,6 +116,25 @@ class MQTTExporter(BaseExporter):
         topic = self.config.topic
         topic = topic.replace("{camera_id}", reading.camera_id)
         topic = topic.replace("{meter_id}", reading.meter_id)
+        return topic
+
+    def _get_indicator_topic(self, reading: IndicatorReading) -> str:
+        """Get MQTT topic for an indicator reading.
+
+        Supports placeholders: {camera_id}, {indicator_id}
+        Falls back to using {meter_id} placeholder for {indicator_id}.
+
+        Args:
+            reading: Indicator reading to get topic for
+
+        Returns:
+            MQTT topic string
+        """
+        topic = self.config.topic
+        topic = topic.replace("{camera_id}", reading.camera_id)
+        # Support both {indicator_id} and {meter_id} placeholders
+        topic = topic.replace("{indicator_id}", reading.indicator_id)
+        topic = topic.replace("{meter_id}", reading.indicator_id)
         return topic
 
     def _publish(self, topic: str, payload: dict) -> bool:
@@ -186,6 +205,47 @@ class MQTTExporter(BaseExporter):
         success = True
         for reading in readings:
             if not self.export(reading):
+                success = False
+
+        return success
+
+    def export_indicator(self, reading: IndicatorReading) -> bool:
+        """Export a single indicator reading via MQTT.
+
+        Args:
+            reading: Indicator reading to export
+
+        Returns:
+            True if export succeeded
+        """
+        if not self._enabled:
+            return True
+
+        topic = self._get_indicator_topic(reading)
+        payload = reading.to_dict()
+
+        return self._publish(topic, payload)
+
+    def export_indicator_batch(self, readings: list[IndicatorReading]) -> bool:
+        """Export a batch of indicator readings via MQTT.
+
+        Each indicator reading is published to its own topic.
+
+        Args:
+            readings: List of indicator readings to export
+
+        Returns:
+            True if all exports succeeded
+        """
+        if not self._enabled:
+            return True
+
+        if not readings:
+            return True
+
+        success = True
+        for reading in readings:
+            if not self.export_indicator(reading):
                 success = False
 
         return success

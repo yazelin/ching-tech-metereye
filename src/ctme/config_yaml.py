@@ -14,6 +14,7 @@ from ctme.models import (
     DatabaseExportConfig,
     ExportConfig,
     HTTPExportConfig,
+    IndicatorConfigData,
     MeterConfigData,
     MQTTExportConfig,
     PerspectivePoints,
@@ -100,6 +101,26 @@ def _parse_meter(data: dict) -> MeterConfigData:
     )
 
 
+def _parse_indicator(data: dict) -> IndicatorConfigData:
+    """Parse indicator configuration from dict."""
+    if "id" not in data:
+        raise ConfigError("Indicator configuration must have 'id' field")
+    if "perspective" not in data:
+        raise ConfigError(f"Indicator '{data['id']}' must have 'perspective' field")
+
+    detection = data.get("detection", {})
+
+    return IndicatorConfigData(
+        id=data["id"],
+        name=data.get("name", data["id"]),
+        perspective=_parse_perspective(data["perspective"]),
+        detection_mode=detection.get("mode", "brightness"),
+        threshold=detection.get("threshold", 128),
+        on_color=detection.get("on_color", "red"),
+        show_on_dashboard=data.get("show_on_dashboard", True),
+    )
+
+
 def _parse_camera(data: dict) -> CameraConfigData:
     """Parse camera configuration from dict."""
     if "id" not in data:
@@ -110,12 +131,16 @@ def _parse_camera(data: dict) -> CameraConfigData:
     meters_data = data.get("meters", [])
     meters = tuple(_parse_meter(m) for m in meters_data)
 
+    indicators_data = data.get("indicators", [])
+    indicators = tuple(_parse_indicator(i) for i in indicators_data)
+
     return CameraConfigData(
         id=data["id"],
         name=data.get("name", data["id"]),
         url=data["url"],
         enabled=data.get("enabled", True),
         meters=meters,
+        indicators=indicators,
         processing_interval_seconds=data.get("processing_interval_seconds", 1.0),
     )
 
@@ -292,6 +317,22 @@ class YAMLConfig:
                     "unit": m.unit,
                     "expected_digits": m.expected_digits,
                 })
+            indicators = []
+            for ind in cam.indicators:
+                indicators.append({
+                    "id": ind.id,
+                    "name": ind.name,
+                    "perspective": {
+                        "points": [list(p) for p in ind.perspective.points],
+                        "output_size": [ind.perspective.output_width, ind.perspective.output_height],
+                    },
+                    "detection": {
+                        "mode": ind.detection_mode,
+                        "threshold": ind.threshold,
+                        "on_color": ind.on_color,
+                    },
+                    "show_on_dashboard": ind.show_on_dashboard,
+                })
             cameras.append({
                 "id": cam.id,
                 "name": cam.name,
@@ -299,6 +340,7 @@ class YAMLConfig:
                 "enabled": cam.enabled,
                 "processing_interval_seconds": cam.processing_interval_seconds,
                 "meters": meters,
+                "indicators": indicators,
             })
 
         return {
@@ -390,6 +432,7 @@ class YAMLConfig:
             url=url,
             enabled=enabled,
             meters=(),
+            indicators=(),
         )
 
         self._config = AppConfig(
@@ -433,6 +476,7 @@ class YAMLConfig:
             url=url if url is not None else existing.url,
             enabled=enabled if enabled is not None else existing.enabled,
             meters=existing.meters,
+            indicators=existing.indicators,
             processing_interval_seconds=(
                 processing_interval_seconds if processing_interval_seconds is not None
                 else existing.processing_interval_seconds
@@ -566,6 +610,7 @@ class YAMLConfig:
             url=camera.url,
             enabled=camera.enabled,
             meters=camera.meters + (new_meter,),
+            indicators=camera.indicators,
         )
 
         new_cameras = tuple(
@@ -672,6 +717,7 @@ class YAMLConfig:
             url=camera.url,
             enabled=camera.enabled,
             meters=new_meters,
+            indicators=camera.indicators,
         )
 
         new_cameras = tuple(
@@ -712,6 +758,245 @@ class YAMLConfig:
             url=camera.url,
             enabled=camera.enabled,
             meters=new_meters,
+            indicators=camera.indicators,
+        )
+
+        new_cameras = tuple(
+            updated_camera if c.id == camera_id else c
+            for c in self.config.cameras
+        )
+
+        self._config = AppConfig(
+            cameras=new_cameras,
+            export=self.config.export,
+            server=self.config.server,
+        )
+
+    # CRUD methods for indicators
+    def get_indicator(self, camera_id: str, indicator_id: str) -> IndicatorConfigData | None:
+        """Get an indicator by camera and indicator ID.
+
+        Args:
+            camera_id: Camera ID
+            indicator_id: Indicator ID
+
+        Returns:
+            IndicatorConfigData or None if not found
+        """
+        camera = self.get_camera(camera_id)
+        if not camera:
+            return None
+
+        for indicator in camera.indicators:
+            if indicator.id == indicator_id:
+                return indicator
+        return None
+
+    def add_indicator(
+        self,
+        camera_id: str,
+        indicator_id: str,
+        name: str,
+        points: list[list[int]],
+        output_size: list[int] | None = None,
+        detection_mode: str = "brightness",
+        threshold: int = 128,
+        on_color: str = "red",
+        show_on_dashboard: bool = True,
+    ) -> IndicatorConfigData:
+        """Add a new indicator to a camera.
+
+        Args:
+            camera_id: Camera ID to add indicator to
+            indicator_id: Unique indicator ID within camera
+            name: Indicator display name
+            points: 4 perspective points [[x,y], ...]
+            output_size: [width, height] or None for default
+            detection_mode: Detection mode (brightness or color)
+            threshold: Threshold value (0=auto)
+            on_color: Color for color mode detection
+            show_on_dashboard: Whether to show on dashboard
+
+        Returns:
+            The new IndicatorConfigData
+
+        Raises:
+            ConfigError: If camera not found or indicator ID exists
+        """
+        camera = self.get_camera(camera_id)
+        if not camera:
+            raise ConfigError(f"Camera '{camera_id}' not found")
+
+        if self.get_indicator(camera_id, indicator_id):
+            raise ConfigError(f"Indicator '{indicator_id}' already exists in camera '{camera_id}'")
+
+        if len(points) != 4:
+            raise ConfigError("Indicator must have exactly 4 perspective points")
+
+        output_size = output_size or [100, 50]
+
+        perspective = PerspectivePoints(
+            points=tuple(tuple(p) for p in points),
+            output_width=output_size[0],
+            output_height=output_size[1],
+        )
+
+        new_indicator = IndicatorConfigData(
+            id=indicator_id,
+            name=name,
+            perspective=perspective,
+            detection_mode=detection_mode,
+            threshold=threshold,
+            on_color=on_color,
+            show_on_dashboard=show_on_dashboard,
+        )
+
+        updated_camera = CameraConfigData(
+            id=camera.id,
+            name=camera.name,
+            url=camera.url,
+            enabled=camera.enabled,
+            meters=camera.meters,
+            indicators=camera.indicators + (new_indicator,),
+        )
+
+        new_cameras = tuple(
+            updated_camera if c.id == camera_id else c
+            for c in self.config.cameras
+        )
+
+        self._config = AppConfig(
+            cameras=new_cameras,
+            export=self.config.export,
+            server=self.config.server,
+        )
+
+        return new_indicator
+
+    def update_indicator(
+        self,
+        camera_id: str,
+        indicator_id: str,
+        name: str | None = None,
+        points: list[list[int]] | None = None,
+        output_size: list[int] | None = None,
+        detection_mode: str | None = None,
+        threshold: int | None = None,
+        on_color: str | None = None,
+        show_on_dashboard: bool | None = None,
+    ) -> IndicatorConfigData:
+        """Update an existing indicator.
+
+        Args:
+            camera_id: Camera ID
+            indicator_id: Indicator ID to update
+            name: New name (None = keep)
+            points: New perspective points (None = keep)
+            output_size: New output size (None = keep)
+            detection_mode: New detection mode (None = keep)
+            threshold: New threshold (None = keep)
+            on_color: New on_color (None = keep)
+            show_on_dashboard: Whether to show on dashboard (None = keep)
+
+        Returns:
+            Updated IndicatorConfigData
+
+        Raises:
+            ConfigError: If camera or indicator not found
+        """
+        camera = self.get_camera(camera_id)
+        if not camera:
+            raise ConfigError(f"Camera '{camera_id}' not found")
+
+        existing = self.get_indicator(camera_id, indicator_id)
+        if not existing:
+            raise ConfigError(f"Indicator '{indicator_id}' not found in camera '{camera_id}'")
+
+        # Build new perspective if points or size changed
+        if points is not None or output_size is not None:
+            new_points = points if points is not None else [list(p) for p in existing.perspective.points]
+            if len(new_points) != 4:
+                raise ConfigError("Indicator must have exactly 4 perspective points")
+
+            new_output_width = (
+                output_size[0] if output_size is not None else existing.perspective.output_width
+            )
+            new_output_height = (
+                output_size[1] if output_size is not None else existing.perspective.output_height
+            )
+
+            new_perspective = PerspectivePoints(
+                points=tuple(tuple(p) for p in new_points),
+                output_width=new_output_width,
+                output_height=new_output_height,
+            )
+        else:
+            new_perspective = existing.perspective
+
+        updated_indicator = IndicatorConfigData(
+            id=existing.id,
+            name=name if name is not None else existing.name,
+            perspective=new_perspective,
+            detection_mode=detection_mode if detection_mode is not None else existing.detection_mode,
+            threshold=threshold if threshold is not None else existing.threshold,
+            on_color=on_color if on_color is not None else existing.on_color,
+            show_on_dashboard=show_on_dashboard if show_on_dashboard is not None else existing.show_on_dashboard,
+        )
+
+        # Rebuild camera indicators
+        new_indicators = tuple(
+            updated_indicator if i.id == indicator_id else i
+            for i in camera.indicators
+        )
+
+        updated_camera = CameraConfigData(
+            id=camera.id,
+            name=camera.name,
+            url=camera.url,
+            enabled=camera.enabled,
+            meters=camera.meters,
+            indicators=new_indicators,
+        )
+
+        new_cameras = tuple(
+            updated_camera if c.id == camera_id else c
+            for c in self.config.cameras
+        )
+
+        self._config = AppConfig(
+            cameras=new_cameras,
+            export=self.config.export,
+            server=self.config.server,
+        )
+
+        return updated_indicator
+
+    def remove_indicator(self, camera_id: str, indicator_id: str) -> None:
+        """Remove an indicator from a camera.
+
+        Args:
+            camera_id: Camera ID
+            indicator_id: Indicator ID to remove
+
+        Raises:
+            ConfigError: If camera or indicator not found
+        """
+        camera = self.get_camera(camera_id)
+        if not camera:
+            raise ConfigError(f"Camera '{camera_id}' not found")
+
+        if not self.get_indicator(camera_id, indicator_id):
+            raise ConfigError(f"Indicator '{indicator_id}' not found in camera '{camera_id}'")
+
+        new_indicators = tuple(i for i in camera.indicators if i.id != indicator_id)
+
+        updated_camera = CameraConfigData(
+            id=camera.id,
+            name=camera.name,
+            url=camera.url,
+            enabled=camera.enabled,
+            meters=camera.meters,
+            indicators=new_indicators,
         )
 
         new_cameras = tuple(

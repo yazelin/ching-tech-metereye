@@ -8,7 +8,7 @@ import urllib.error
 from typing import Any
 
 from ctme.export.base import BaseExporter
-from ctme.models import HTTPExportConfig, Reading
+from ctme.models import HTTPExportConfig, IndicatorReading, Reading
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +132,47 @@ class HTTPExporter(BaseExporter):
 
         data = {
             "readings": [r.to_dict() for r in readings],
+            "count": len(readings),
+        }
+
+        return self._make_request(data)
+
+    def export_indicator(self, reading: IndicatorReading) -> bool:
+        """Export a single indicator reading.
+
+        Args:
+            reading: Indicator reading to export
+
+        Returns:
+            True if export succeeded
+        """
+        if not self._enabled:
+            return True
+
+        data = {
+            "indicator_readings": [reading.to_dict()],
+            "count": 1,
+        }
+
+        return self._make_request(data)
+
+    def export_indicator_batch(self, readings: list[IndicatorReading]) -> bool:
+        """Export a batch of indicator readings.
+
+        Args:
+            readings: List of indicator readings to export
+
+        Returns:
+            True if export succeeded
+        """
+        if not self._enabled:
+            return True
+
+        if not readings:
+            return True
+
+        data = {
+            "indicator_readings": [r.to_dict() for r in readings],
             "count": len(readings),
         }
 

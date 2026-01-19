@@ -20,7 +20,7 @@ except ImportError:
 
 from ctme.camera_manager import CameraManager
 from ctme.config_yaml import YAMLConfig
-from ctme.models import AppConfig, CameraRuntimeStatus, CameraStatus, Reading
+from ctme.models import AppConfig, CameraRuntimeStatus, CameraStatus, IndicatorReading, Reading
 from ctme.api.config_routes import create_config_router, create_frame_router
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,25 @@ if FASTAPI_AVAILABLE:
         decimal_places: int = 0
         unit: str = ""
 
+    class IndicatorStatusResponse(BaseModel):
+        """Indicator status response."""
+
+        indicator_id: str
+        name: str
+        state: bool | None = None
+        brightness: float | None = None
+        last_reading_time: str | None = None
+        show_on_dashboard: bool = True
+
+    class IndicatorReadingResponse(BaseModel):
+        """Indicator reading response."""
+
+        camera_id: str
+        indicator_id: str
+        state: bool
+        brightness: float
+        timestamp: str
+
     class CameraStatusResponse(BaseModel):
         """Camera status response."""
 
@@ -51,12 +70,14 @@ if FASTAPI_AVAILABLE:
         last_frame_time: str | None = None
         fps: float
         meter_count: int
+        indicator_count: int = 0
         error_message: str = ""
 
     class CameraDetailResponse(CameraStatusResponse):
-        """Camera detail response with meters."""
+        """Camera detail response with meters and indicators."""
 
         meters: list[MeterStatusResponse]
+        indicators: list[IndicatorStatusResponse] = []
 
     class ReadingResponse(BaseModel):
         """Reading response."""
@@ -120,10 +141,12 @@ class APIServer:
         self.yaml_config = yaml_config
         self._start_time = datetime.now()
         self._reading_count = 0
+        self._indicator_reading_count = 0
         self._latest_readings: dict[str, Reading] = {}  # key: camera_id/meter_id
+        self._latest_indicator_readings: dict[str, IndicatorReading] = {}  # key: camera_id/indicator_id
 
     def record_reading(self, reading: Reading) -> None:
-        """Record a reading for API access.
+        """Record a meter reading for API access.
 
         Args:
             reading: Reading to record
@@ -131,6 +154,16 @@ class APIServer:
         key = f"{reading.camera_id}/{reading.meter_id}"
         self._latest_readings[key] = reading
         self._reading_count += 1
+
+    def record_indicator_reading(self, reading: IndicatorReading) -> None:
+        """Record an indicator reading for API access.
+
+        Args:
+            reading: Indicator reading to record
+        """
+        key = f"{reading.camera_id}/{reading.indicator_id}"
+        self._latest_indicator_readings[key] = reading
+        self._indicator_reading_count += 1
 
     def get_status(self) -> dict[str, Any]:
         """Get system status."""
@@ -209,6 +242,7 @@ class APIServer:
             ),
             "fps": round(status.fps, 2),
             "meter_count": len(status.meters),
+            "indicator_count": len(status.indicators),
             "error_message": status.error_message,
         }
 
@@ -251,6 +285,33 @@ class APIServer:
             meters.append(meter_data)
 
         result["meters"] = meters
+
+        # Get config data for indicator settings
+        config_indicators = {i.id: i for i in camera_config.indicators} if camera_config else {}
+
+        indicators = []
+        for ind in status.indicators:
+            # Get indicator config settings
+            indicator_config = config_indicators.get(ind.indicator_id)
+            show_on_dashboard = indicator_config.show_on_dashboard if indicator_config else True
+
+            indicator_data = {
+                "indicator_id": ind.indicator_id,
+                "name": ind.name,
+                "state": None,
+                "brightness": None,
+                "last_reading_time": None,
+                "show_on_dashboard": show_on_dashboard,
+            }
+
+            if ind.last_reading:
+                indicator_data["state"] = ind.last_reading.state
+                indicator_data["brightness"] = ind.last_reading.brightness
+                indicator_data["last_reading_time"] = ind.last_reading.timestamp.isoformat()
+
+            indicators.append(indicator_data)
+
+        result["indicators"] = indicators
         return result
 
 
@@ -339,6 +400,14 @@ def create_app(
         if result is None:
             raise HTTPException(status_code=404, detail="Camera not found")
         return result.get("meters", [])
+
+    @app.get("/api/cameras/{camera_id}/indicators", response_model=list[IndicatorStatusResponse])
+    async def get_camera_indicators(camera_id: str):
+        """Get indicators for a camera."""
+        result = api_server.get_camera(camera_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Camera not found")
+        return result.get("indicators", [])
 
     @app.get("/api/readings", response_model=list[ReadingResponse])
     async def get_readings(

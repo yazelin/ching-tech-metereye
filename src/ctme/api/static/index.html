@@ -583,6 +583,99 @@
         body.fullscreen .meter-list-panel {
             display: none;
         }
+
+        /* Indicator Styles */
+        .indicator-reading {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .indicator-label {
+            color: var(--gray-400);
+        }
+
+        .indicator-light {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .indicator-light.on {
+            background: var(--danger);
+            box-shadow: 0 0 8px var(--danger), 0 0 12px var(--danger);
+            animation: glow 1s ease-in-out infinite alternate;
+        }
+
+        .indicator-light.off {
+            background: var(--gray-600);
+        }
+
+        .indicator-light.unknown {
+            background: var(--gray-700);
+        }
+
+        @keyframes glow {
+            from { box-shadow: 0 0 6px var(--danger), 0 0 10px var(--danger); }
+            to { box-shadow: 0 0 10px var(--danger), 0 0 16px var(--danger); }
+        }
+
+        .indicator-status-text {
+            font-weight: 600;
+            font-size: 0.75rem;
+        }
+
+        .indicator-status-text.on {
+            color: var(--danger);
+        }
+
+        .indicator-status-text.off {
+            color: var(--gray-500);
+        }
+
+        /* Meter List Panel - Section Headers */
+        .panel-section-header {
+            padding: 0.5rem 1rem;
+            font-size: 0.625rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--gray-500);
+            background: var(--gray-900);
+            border-bottom: 1px solid var(--gray-700);
+        }
+
+        /* Indicator List Item */
+        .indicator-list-item {
+            padding: 0.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.125rem;
+            border-bottom: 1px solid var(--gray-700);
+        }
+
+        .indicator-list-item:last-child {
+            border-bottom: none;
+        }
+
+        .indicator-list-item .indicator-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .indicator-list-item .indicator-name {
+            font-size: 0.875rem;
+            color: white;
+        }
+
+        .indicator-list-item .indicator-state {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -691,15 +784,15 @@
         <kbd>ESC</kbd> Exit
     </div>
 
-    <!-- Meter List Panel -->
+    <!-- Meter & Indicator List Panel -->
     <div id="meterListPanel" class="meter-list-panel">
-        <button class="panel-toggle" onclick="toggleMeterPanel()" title="Toggle Meter List (Press M)">
+        <button class="panel-toggle" onclick="toggleMeterPanel()" title="Toggle Panel (Press M)">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
             </svg>
         </button>
         <div class="panel-header">
-            <span>All Meters</span>
+            <span>Readings</span>
             <span class="meter-count" id="meterListCount">0</span>
         </div>
         <div class="panel-content" id="meterListContent">
@@ -737,6 +830,8 @@
 
             // Gather all meters from all cameras
             const allMeters = [];
+            const allIndicators = [];
+
             for (const camera of cameras) {
                 if (camera.meters) {
                     for (const meter of camera.meters) {
@@ -749,35 +844,80 @@
                         }
                     }
                 }
+                if (camera.indicators) {
+                    for (const indicator of camera.indicators) {
+                        if (indicator.show_on_dashboard !== false) {
+                            allIndicators.push({
+                                cameraId: camera.camera_id,
+                                cameraName: camera.name,
+                                ...indicator
+                            });
+                        }
+                    }
+                }
             }
 
-            countEl.textContent = allMeters.length;
+            const totalCount = allMeters.length + allIndicators.length;
+            countEl.textContent = totalCount;
 
-            if (allMeters.length === 0) {
-                content.innerHTML = '<div style="padding: 1rem; color: var(--gray-500); text-align: center;">No meters configured</div>';
+            if (totalCount === 0) {
+                content.innerHTML = '<div style="padding: 1rem; color: var(--gray-500); text-align: center;">No readings configured</div>';
                 return;
             }
 
-            content.innerHTML = allMeters.map(meter => {
-                const rawValue = meter.normalized_value !== null ? meter.normalized_value : meter.last_value;
-                let displayValue = '--';
-                if (rawValue !== null) {
-                    const decimalPlaces = meter.decimal_places || 0;
-                    displayValue = decimalPlaces > 0 ? rawValue.toFixed(decimalPlaces) : rawValue;
-                    if (meter.unit) displayValue += ' ' + meter.unit;
-                }
-                const valueClass = rawValue !== null ? '' : 'no-reading';
+            let html = '';
 
-                return `
-                    <div class="meter-list-item">
-                        <div class="meter-info">
-                            <span class="meter-name">${meter.name}</span>
-                            <span class="meter-reading-value ${valueClass}">${displayValue}</span>
+            // Indicators section (show first if any have alarm state)
+            if (allIndicators.length > 0) {
+                html += '<div class="panel-section-header">Indicators</div>';
+                html += allIndicators.map(indicator => {
+                    const state = indicator.state;
+                    const stateClass = state === true ? 'on' : (state === false ? 'off' : 'unknown');
+                    const stateText = state === true ? 'ON' : (state === false ? 'OFF' : '--');
+
+                    return `
+                        <div class="indicator-list-item">
+                            <div class="indicator-info">
+                                <span class="indicator-name">${indicator.name}</span>
+                                <div class="indicator-state">
+                                    <span class="indicator-status-text ${stateClass}">${stateText}</span>
+                                    <div class="indicator-light ${stateClass}"></div>
+                                </div>
+                            </div>
+                            <span class="camera-name">${indicator.cameraName}</span>
                         </div>
-                        <span class="camera-name">${meter.cameraName}</span>
-                    </div>
-                `;
-            }).join('');
+                    `;
+                }).join('');
+            }
+
+            // Meters section
+            if (allMeters.length > 0) {
+                if (allIndicators.length > 0) {
+                    html += '<div class="panel-section-header">Meters</div>';
+                }
+                html += allMeters.map(meter => {
+                    const rawValue = meter.normalized_value !== null ? meter.normalized_value : meter.last_value;
+                    let displayValue = '--';
+                    if (rawValue !== null) {
+                        const decimalPlaces = meter.decimal_places || 0;
+                        displayValue = decimalPlaces > 0 ? rawValue.toFixed(decimalPlaces) : rawValue;
+                        if (meter.unit) displayValue += ' ' + meter.unit;
+                    }
+                    const valueClass = rawValue !== null ? '' : 'no-reading';
+
+                    return `
+                        <div class="meter-list-item">
+                            <div class="meter-info">
+                                <span class="meter-name">${meter.name}</span>
+                                <span class="meter-reading-value ${valueClass}">${displayValue}</span>
+                            </div>
+                            <span class="camera-name">${meter.cameraName}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            content.innerHTML = html;
         }
 
         // Layout management
@@ -861,6 +1001,23 @@
                     }).join('');
             }
 
+            // Add indicators
+            let indicatorsHtml = '';
+            if (camera.indicators && camera.indicators.length > 0) {
+                indicatorsHtml = camera.indicators
+                    .filter(indicator => indicator.show_on_dashboard !== false)
+                    .map(indicator => {
+                        const state = indicator.state;
+                        const stateClass = state === true ? 'on' : (state === false ? 'off' : 'unknown');
+                        return `
+                            <div class="indicator-reading">
+                                <span class="indicator-label">${indicator.name}:</span>
+                                <div class="indicator-light ${stateClass}"></div>
+                            </div>
+                        `;
+                    }).join('');
+            }
+
             return `
                 <div class="camera-cell" data-camera-id="${camera.camera_id}">
                     <div class="video-wrapper">
@@ -882,7 +1039,10 @@
                         <div class="camera-status-indicator ${statusClass}"></div>
                     </div>
                     <div class="camera-info-bar">
-                        <div class="meter-readings">${metersHtml}</div>
+                        <div class="meter-readings">
+                            ${indicatorsHtml}
+                            ${metersHtml}
+                        </div>
                         <div class="camera-meta">
                             ${camera.fps ? `${camera.fps.toFixed(1)} FPS` : ''}
                         </div>
@@ -997,14 +1157,33 @@
                     if (!cell) continue;
 
                     // Update status indicator
-                    const indicator = cell.querySelector('.camera-status-indicator');
-                    indicator.className = `camera-status-indicator ${detail.status.toLowerCase()}`;
+                    const statusIndicator = cell.querySelector('.camera-status-indicator');
+                    statusIndicator.className = `camera-status-indicator ${detail.status.toLowerCase()}`;
 
-                    // Update meter readings
-                    if (detail.meters && detail.meters.length > 0) {
-                        const readingsEl = cell.querySelector('.meter-readings');
-                        if (readingsEl) {
-                            readingsEl.innerHTML = detail.meters
+                    // Build readings HTML (indicators + meters)
+                    const readingsEl = cell.querySelector('.meter-readings');
+                    if (readingsEl) {
+                        let html = '';
+
+                        // Indicators
+                        if (detail.indicators && detail.indicators.length > 0) {
+                            html += detail.indicators
+                                .filter(indicator => indicator.show_on_dashboard !== false)
+                                .map(indicator => {
+                                    const state = indicator.state;
+                                    const stateClass = state === true ? 'on' : (state === false ? 'off' : 'unknown');
+                                    return `
+                                        <div class="indicator-reading">
+                                            <span class="indicator-label">${indicator.name}:</span>
+                                            <div class="indicator-light ${stateClass}"></div>
+                                        </div>
+                                    `;
+                                }).join('');
+                        }
+
+                        // Meters
+                        if (detail.meters && detail.meters.length > 0) {
+                            html += detail.meters
                                 .filter(meter => meter.show_on_dashboard !== false)
                                 .map(meter => {
                                     const rawValue = meter.normalized_value !== null ? meter.normalized_value : meter.last_value;
@@ -1023,6 +1202,8 @@
                                     `;
                                 }).join('');
                         }
+
+                        readingsEl.innerHTML = html;
                     }
 
                     // Update FPS

@@ -14,11 +14,15 @@ from ctme.models import (
     CameraConfigData,
     CameraRuntimeStatus,
     CameraStatus,
+    IndicatorConfigData,
+    IndicatorReading,
+    IndicatorStatus,
     MeterConfigData,
     MeterStatus,
     PerspectivePoints,
     Reading,
 )
+from ctme.indicator import IndicatorDetector
 from ctme.recognition import SevenSegmentRecognizer
 
 logger = logging.getLogger(__name__)
@@ -66,19 +70,22 @@ class CameraWorker(threading.Thread):
         self,
         config: CameraConfigData,
         reading_queue: "queue.Queue[Reading]",
+        indicator_queue: "queue.Queue[IndicatorReading]",
         on_status_change: Callable[[str, CameraStatus], None] | None = None,
     ):
         """Initialize camera worker.
 
         Args:
             config: Camera configuration
-            reading_queue: Queue to publish readings
+            reading_queue: Queue to publish meter readings
+            indicator_queue: Queue to publish indicator readings
             on_status_change: Callback for status changes
         """
         super().__init__(name=f"CameraWorker-{config.id}", daemon=True)
 
         self.config = config
         self.reading_queue = reading_queue
+        self.indicator_queue = indicator_queue
         self.on_status_change = on_status_change
 
         self._stop_event = threading.Event()
@@ -115,6 +122,22 @@ class CameraWorker(threading.Thread):
                 name=meter.name,
             )
 
+        # Create detectors for each indicator
+        self._indicator_detectors: dict[str, IndicatorDetector] = {}
+        self._indicator_status: dict[str, IndicatorStatus] = {}
+        self._indicators = config.indicators  # Mutable reference for hot reload
+
+        for indicator in config.indicators:
+            self._indicator_detectors[indicator.id] = IndicatorDetector(
+                detection_mode=indicator.detection_mode,
+                threshold=indicator.threshold,
+                on_color=indicator.on_color,
+            )
+            self._indicator_status[indicator.id] = IndicatorStatus(
+                indicator_id=indicator.id,
+                name=indicator.name,
+            )
+
     @property
     def status(self) -> CameraStatus:
         """Get current camera status."""
@@ -144,6 +167,7 @@ class CameraWorker(threading.Thread):
                 last_frame_time=self._last_frame_time,
                 fps=self._fps,
                 meters=list(self._meter_status.values()),
+                indicators=list(self._indicator_status.values()),
                 error_message=self._error_message,
             )
 
@@ -213,6 +237,54 @@ class CameraWorker(threading.Thread):
 
             logger.info(f"Camera {self.config.id} meters updated: {[m.id for m in meters]}")
 
+    def update_indicators(self, indicators: tuple[IndicatorConfigData, ...]) -> None:
+        """Hot update indicator configurations without stopping the worker.
+
+        Args:
+            indicators: New indicator configurations
+        """
+        with self._status_lock:
+            # Rebuild detectors
+            old_detectors = self._indicator_detectors
+            old_status = self._indicator_status
+
+            self._indicator_detectors = {}
+            self._indicator_status = {}
+
+            for indicator in indicators:
+                # Reuse existing detector if config unchanged
+                old_det = old_detectors.get(indicator.id)
+                if (old_det and
+                    old_det.detection_mode == indicator.detection_mode and
+                    old_det.threshold == indicator.threshold and
+                    old_det.on_color == indicator.on_color):
+                    self._indicator_detectors[indicator.id] = old_det
+                else:
+                    self._indicator_detectors[indicator.id] = IndicatorDetector(
+                        detection_mode=indicator.detection_mode,
+                        threshold=indicator.threshold,
+                        on_color=indicator.on_color,
+                    )
+
+                # Preserve last reading if indicator still exists
+                old_indicator_status = old_status.get(indicator.id)
+                if old_indicator_status:
+                    self._indicator_status[indicator.id] = IndicatorStatus(
+                        indicator_id=indicator.id,
+                        name=indicator.name,
+                        last_reading=old_indicator_status.last_reading,
+                    )
+                else:
+                    self._indicator_status[indicator.id] = IndicatorStatus(
+                        indicator_id=indicator.id,
+                        name=indicator.name,
+                    )
+
+            # Update config with new indicators
+            self._indicators = indicators
+
+            logger.info(f"Camera {self.config.id} indicators updated: {[i.id for i in indicators]}")
+
     def update_processing_interval(self, interval_seconds: float) -> None:
         """Hot update processing interval without stopping the worker.
 
@@ -229,14 +301,14 @@ class CameraWorker(threading.Thread):
         return self.RECONNECT_DELAYS[idx]
 
     def _process_frame(self, frame: np.ndarray) -> None:
-        """Process a frame and recognize all meters.
+        """Process a frame and recognize all meters and indicators.
 
         Args:
             frame: Input frame from camera
         """
         timestamp = datetime.now()
 
-        # Use _meters for hot reload support
+        # Process meters
         for meter in self._meters:
             if meter.id not in self._recognizers:
                 continue
@@ -282,6 +354,42 @@ class CameraWorker(threading.Thread):
                 self.reading_queue.put_nowait(reading)
             except queue.Full:
                 logger.warning(f"Reading queue full, dropping reading from {meter.id}")
+
+        # Process indicators
+        for indicator in self._indicators:
+            if indicator.id not in self._indicator_detectors:
+                continue
+
+            # Apply perspective transform
+            warped = apply_perspective_transform(frame, indicator.perspective)
+            if warped is None:
+                continue
+
+            # Detect indicator state
+            detector = self._indicator_detectors[indicator.id]
+            state, brightness, _ = detector.detect(warped)
+
+            # Create indicator reading
+            indicator_reading = IndicatorReading(
+                camera_id=self.config.id,
+                indicator_id=indicator.id,
+                state=state,
+                brightness=brightness,
+                timestamp=timestamp,
+            )
+
+            # Update indicator status
+            self._indicator_status[indicator.id] = IndicatorStatus(
+                indicator_id=indicator.id,
+                name=indicator.name,
+                last_reading=indicator_reading,
+            )
+
+            # Publish to queue (non-blocking)
+            try:
+                self.indicator_queue.put_nowait(indicator_reading)
+            except queue.Full:
+                logger.warning(f"Indicator queue full, dropping reading from {indicator.id}")
 
     def run(self) -> None:
         """Main worker loop."""
@@ -368,6 +476,7 @@ class CameraWorker(threading.Thread):
 
 
 ReadingCallback = Callable[[Reading], None]
+IndicatorReadingCallback = Callable[[IndicatorReading], None]
 
 
 class CameraManager:
@@ -382,9 +491,12 @@ class CameraManager:
         self._workers: dict[str, CameraWorker] = {}
         self._workers_lock = threading.Lock()
         self._reading_queue: queue.Queue[Reading] = queue.Queue(maxsize=max_queue_size)
+        self._indicator_queue: queue.Queue[IndicatorReading] = queue.Queue(maxsize=max_queue_size)
         self._callbacks: list[ReadingCallback] = []
+        self._indicator_callbacks: list[IndicatorReadingCallback] = []
         self._callbacks_lock = threading.Lock()
         self._dispatcher_thread: threading.Thread | None = None
+        self._indicator_dispatcher_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     def add_camera(
@@ -410,6 +522,7 @@ class CameraManager:
             worker = CameraWorker(
                 config=config,
                 reading_queue=self._reading_queue,
+                indicator_queue=self._indicator_queue,
                 on_status_change=on_status_change,
             )
             self._workers[config.id] = worker
@@ -452,6 +565,29 @@ class CameraManager:
                 return False
 
             worker.update_meters(meters)
+            return True
+
+    def update_camera_indicators(
+        self,
+        camera_id: str,
+        indicators: tuple[IndicatorConfigData, ...],
+    ) -> bool:
+        """Hot update indicators for a camera without restarting.
+
+        Args:
+            camera_id: ID of camera to update
+            indicators: New indicator configurations
+
+        Returns:
+            True if updated, False if camera not found
+        """
+        with self._workers_lock:
+            worker = self._workers.get(camera_id)
+            if not worker:
+                logger.warning(f"Cannot update indicators: camera {camera_id} not found")
+                return False
+
+            worker.update_indicators(indicators)
             return True
 
     def update_camera_processing_interval(
@@ -544,8 +680,27 @@ class CameraManager:
             if callback in self._callbacks:
                 self._callbacks.remove(callback)
 
+    def add_indicator_reading_callback(self, callback: IndicatorReadingCallback) -> None:
+        """Add a callback for new indicator readings.
+
+        Args:
+            callback: Function to call with each new indicator reading
+        """
+        with self._callbacks_lock:
+            self._indicator_callbacks.append(callback)
+
+    def remove_indicator_reading_callback(self, callback: IndicatorReadingCallback) -> None:
+        """Remove an indicator reading callback.
+
+        Args:
+            callback: Callback to remove
+        """
+        with self._callbacks_lock:
+            if callback in self._indicator_callbacks:
+                self._indicator_callbacks.remove(callback)
+
     def _dispatch_readings(self) -> None:
-        """Dispatcher thread that distributes readings to callbacks."""
+        """Dispatcher thread that distributes meter readings to callbacks."""
         while not self._stop_event.is_set():
             try:
                 reading = self._reading_queue.get(timeout=0.5)
@@ -561,27 +716,58 @@ class CameraManager:
                 except Exception as e:
                     logger.error(f"Reading callback error: {e}")
 
+    def _dispatch_indicator_readings(self) -> None:
+        """Dispatcher thread that distributes indicator readings to callbacks."""
+        while not self._stop_event.is_set():
+            try:
+                reading = self._indicator_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            with self._callbacks_lock:
+                callbacks = list(self._indicator_callbacks)
+
+            for callback in callbacks:
+                try:
+                    callback(reading)
+                except Exception as e:
+                    logger.error(f"Indicator reading callback error: {e}")
+
     def start(self) -> None:
-        """Start the reading dispatcher."""
+        """Start the reading dispatchers."""
         if self._dispatcher_thread is not None:
             return
 
         self._stop_event.clear()
+
+        # Start meter reading dispatcher
         self._dispatcher_thread = threading.Thread(
             target=self._dispatch_readings,
             name="ReadingDispatcher",
             daemon=True,
         )
         self._dispatcher_thread.start()
+
+        # Start indicator reading dispatcher
+        self._indicator_dispatcher_thread = threading.Thread(
+            target=self._dispatch_indicator_readings,
+            name="IndicatorDispatcher",
+            daemon=True,
+        )
+        self._indicator_dispatcher_thread.start()
+
         logger.info("Camera manager started")
 
     def stop(self) -> None:
-        """Stop all camera workers and the dispatcher."""
-        # Stop dispatcher
+        """Stop all camera workers and the dispatchers."""
+        # Stop dispatchers
         self._stop_event.set()
         if self._dispatcher_thread:
             self._dispatcher_thread.join(timeout=2.0)
             self._dispatcher_thread = None
+        if self._indicator_dispatcher_thread:
+            self._indicator_dispatcher_thread.join(timeout=2.0)
+            self._indicator_dispatcher_thread = None
 
         # Stop all workers
         with self._workers_lock:

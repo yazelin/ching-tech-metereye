@@ -6,7 +6,8 @@
 
 - **多攝影機支援** - 同時監控多台 RTSP 攝影機
 - **七段顯示器辨識** - 自動辨識 0-9 數字及小數點
-- **多錶頭支援** - 單一畫面可監控多個壓力錶
+- **指示燈監控** - 偵測警報燈、火災面板等燈號狀態（亮/滅）
+- **多錶頭支援** - 單一畫面可監控多個壓力錶與指示燈
 - **4 點透視校正** - 網頁介面互動式校正傾斜角度
 - **NVR 風格 Dashboard** - 分割畫面即時監控
 - **Web 設定介面** - 瀏覽器上完成所有設定
@@ -64,6 +65,7 @@ uv run ctme --config /path/to/config.yaml
 - 設定錶頭透視校正（4 點選取）
 - 調整辨識參數（顏色通道、閾值、顯示模式）
 - 設定預期位數、小數點位數、單位
+- 新增/編輯指示燈（亮度或顏色偵測模式）
 - 即時預覽辨識結果
 
 ### 設定檔
@@ -92,6 +94,19 @@ cameras:
         unit: "kPa"          # 單位
         show_on_dashboard: true
 
+    # 指示燈設定（警報燈、火災面板等）
+    indicators:
+      - id: alarm-01
+        name: 火災警報
+        perspective:
+          points: [[100, 200], [200, 200], [200, 250], [100, 250]]
+          output_size: [100, 50]
+        detection:
+          mode: brightness    # brightness（亮度）或 color（顏色）
+          threshold: 128      # 0=自動, 1-255=手動
+          on_color: red       # 顏色模式：red, green, blue, yellow, orange
+        show_on_dashboard: true
+
 # 資料匯出設定
 export:
   # HTTP POST 到外部 API
@@ -104,11 +119,11 @@ export:
       Authorization: "Bearer ${API_TOKEN:-}"
     timeout_seconds: 10
 
-  # 資料庫儲存
+  # 資料庫儲存（詳見 docs/database-setup.md）
   database:
     enabled: false
-    type: sqlite  # sqlite 或 postgresql
-    path: "./readings.db"
+    type: postgresql
+    connection_string: "postgresql+psycopg://user:pass@localhost:5433/metereye"
     retention_days: 30
 
   # MQTT 發布
@@ -155,19 +170,25 @@ ching-tech-metereye/
 │   ├── camera_manager.py # 多攝影機管理
 │   ├── config_yaml.py    # YAML 設定管理
 │   ├── recognition.py    # 七段顯示器辨識
+│   ├── indicator.py      # 指示燈偵測
 │   ├── models.py         # 資料模型
 │   ├── api/
 │   │   ├── server.py      # FastAPI 服務
 │   │   ├── config_routes.py # 設定 API
 │   │   └── static/        # Web 前端
 │   │       ├── index.html # Dashboard
-│   │       ├── config.html # 設定頁面
-│   │       └── css/       # 樣式
+│   │       └── config.html # 設定頁面
 │   └── export/            # 資料匯出模組
 │       ├── base.py        # 匯出器基底類別
 │       ├── http.py        # HTTP 匯出
 │       ├── database.py    # 資料庫匯出
 │       └── mqtt.py        # MQTT 匯出
+├── docker/               # Docker 部署
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── init-db.sh        # 資料庫初始化腳本
+├── docs/                 # 文件
+│   └── database-setup.md # 資料庫設定說明
 ├── openspec/             # 規格文件與變更提案
 └── pyproject.toml        # 專案設定
 ```
@@ -181,8 +202,9 @@ ching-tech-metereye/
 | `GET /health` | 健康檢查 |
 | `GET /api/status` | 系統狀態（運行時間、攝影機數量、讀數總數） |
 | `GET /api/cameras` | 攝影機列表 |
-| `GET /api/cameras/{id}` | 攝影機詳細資訊（含錶頭狀態） |
+| `GET /api/cameras/{id}` | 攝影機詳細資訊（含錶頭與指示燈狀態） |
 | `GET /api/cameras/{id}/meters` | 攝影機的錶頭列表 |
+| `GET /api/cameras/{id}/indicators` | 攝影機的指示燈列表 |
 
 ### 讀數
 
@@ -212,6 +234,10 @@ ching-tech-metereye/
 | `POST /api/config/cameras/{id}/meters` | 新增錶頭 |
 | `PUT /api/config/cameras/{id}/meters/{mid}` | 更新錶頭 |
 | `DELETE /api/config/cameras/{id}/meters/{mid}` | 刪除錶頭 |
+| `GET /api/config/cameras/{id}/indicators` | 指示燈設定列表 |
+| `POST /api/config/cameras/{id}/indicators` | 新增指示燈 |
+| `PUT /api/config/cameras/{id}/indicators/{iid}` | 更新指示燈 |
+| `DELETE /api/config/cameras/{id}/indicators/{iid}` | 刪除指示燈 |
 | `POST /api/config/save` | 儲存設定至檔案 |
 | `POST /api/config/reload` | 熱重載設定 |
 
@@ -220,6 +246,7 @@ ching-tech-metereye/
 | 端點 | 說明 |
 |------|------|
 | `POST /api/preview/perspective` | 透視校正預覽與辨識測試 |
+| `POST /api/preview/indicator` | 指示燈偵測預覽 |
 
 ## 授權
 

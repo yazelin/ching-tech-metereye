@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: metereye-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-metereye}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_in_production}
+      POSTGRES_DB: ${DB_NAME:-metereye}
+      # Read-only user for external access
+      READONLY_USER: ${DB_READONLY_USER:-metereye_reader}
+      READONLY_PASSWORD: ${DB_READONLY_PASSWORD:-reader_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-metereye} -d ${DB_NAME:-metereye}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

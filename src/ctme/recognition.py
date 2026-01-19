@@ -174,6 +174,10 @@ class SevenSegmentRecognizer:
         Note: We always use the full slot width for analysis. Narrow digits
         like "1" are naturally handled by the segment pattern matching since
         only segments b and c will have content above threshold.
+
+        Returns:
+            (digit, segments, visualization)
+            - digit: "0"-"9" if recognized, "" if blank/empty, None if recognition failed
         """
         h, w = digit_binary.shape[:2]
 
@@ -181,11 +185,13 @@ class SevenSegmentRecognizer:
         vis = cv2.cvtColor(digit_binary, cv2.COLOR_GRAY2BGR)
 
         if h < 5 or w < 2:
-            return None, [], vis
+            return "", [], vis  # Too small = treat as blank
 
         # Check if there's any content at all
-        if not np.any(digit_binary > 0):
-            return None, [], vis
+        content_ratio = np.sum(digit_binary > 0) / digit_binary.size
+        if content_ratio < 0.01:  # Less than 1% lit = blank/empty digit
+            cv2.putText(vis, "_", (3, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
+            return "", [], vis  # Empty string = blank position (not recognition failure)
 
         # Use full slot dimensions for analysis
         # This ensures consistent segment detection regardless of digit width
@@ -321,7 +327,11 @@ class SevenSegmentRecognizer:
                 visuals.append(dot_vis)
             else:
                 digit, segs, vis = self.analyze_digit(col_img)
-                result += digit if digit else "?"
+                # digit is: "0"-"9" = recognized, "" = blank/empty, None = recognition failed
+                if digit is None:
+                    result += "?"  # Recognition failed (has content but unrecognized)
+                else:
+                    result += digit  # Could be "0"-"9" or "" (blank)
                 digit_count += 1
                 visuals.append(vis)
 

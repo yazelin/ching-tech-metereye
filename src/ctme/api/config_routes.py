@@ -19,6 +19,7 @@ except ImportError:
 
 from ctme.camera_manager import CameraManager
 from ctme.config_yaml import ConfigError, YAMLConfig
+from ctme.indicator import IndicatorDetector
 from ctme.models import PerspectivePoints
 from ctme.recognition import SevenSegmentRecognizer
 
@@ -133,6 +134,63 @@ if FASTAPI_AVAILABLE:
 
         cameras: list[CameraConfigResponse]
 
+    # Indicator models
+    class IndicatorPerspectiveRequest(BaseModel):
+        """Perspective configuration for indicator."""
+
+        points: list[list[int]] = Field(..., description="4 points [[x,y], ...]")
+        output_size: list[int] = Field([100, 50], description="[width, height]")
+
+    class IndicatorDetectionRequest(BaseModel):
+        """Detection parameters for indicator."""
+
+        mode: str = Field("brightness", description="brightness or color")
+        threshold: int = Field(128, description="0=auto (Otsu), 1-255=manual")
+        on_color: str = Field("red", description="red, green, blue, yellow, orange")
+
+    class IndicatorConfigRequest(BaseModel):
+        """Request for creating an indicator."""
+
+        id: str = Field(..., description="Unique indicator ID within camera")
+        name: str = Field(..., description="Indicator display name")
+        perspective: IndicatorPerspectiveRequest
+        detection: IndicatorDetectionRequest = Field(default_factory=IndicatorDetectionRequest)
+        show_on_dashboard: bool = Field(True, description="Whether to show on dashboard")
+
+    class IndicatorConfigResponse(BaseModel):
+        """Response for indicator configuration."""
+
+        id: str
+        name: str
+        perspective: dict
+        detection: dict
+        show_on_dashboard: bool = True
+
+    class IndicatorUpdateRequest(BaseModel):
+        """Request for updating an indicator (partial update)."""
+
+        name: str | None = None
+        perspective: IndicatorPerspectiveRequest | None = None
+        detection: IndicatorDetectionRequest | None = None
+        show_on_dashboard: bool | None = None
+
+    class IndicatorPreviewRequest(BaseModel):
+        """Request for indicator preview."""
+
+        camera_id: str
+        points: list[list[int]] = Field(..., description="4 points [[x,y], ...]")
+        output_size: list[int] = Field([100, 50], description="[width, height]")
+        detection_mode: str = Field("brightness")
+        threshold: int = Field(128)
+        on_color: str = Field("red")
+
+    class IndicatorPreviewResponse(BaseModel):
+        """Response for indicator preview."""
+
+        transformed_image: str = Field(..., description="Base64 encoded JPEG")
+        state: bool | None = Field(None, description="Detected state (True=ON, False=OFF)")
+        brightness: float | None = Field(None, description="Measured brightness/ratio")
+
 
 def create_config_router(
     camera_manager: CameraManager,
@@ -181,6 +239,23 @@ def create_config_router(
             "decimal_places": meter.decimal_places,
             "unit": meter.unit,
             "expected_digits": meter.expected_digits,
+        }
+
+    def _indicator_to_response(indicator) -> dict:
+        """Convert IndicatorConfigData to response dict."""
+        return {
+            "id": indicator.id,
+            "name": indicator.name,
+            "perspective": {
+                "points": [list(p) for p in indicator.perspective.points],
+                "output_size": [indicator.perspective.output_width, indicator.perspective.output_height],
+            },
+            "detection": {
+                "mode": indicator.detection_mode,
+                "threshold": indicator.threshold,
+                "on_color": indicator.on_color,
+            },
+            "show_on_dashboard": indicator.show_on_dashboard,
         }
 
     # Camera CRUD endpoints
@@ -325,6 +400,100 @@ def create_config_router(
         """Delete a meter from a camera."""
         try:
             yaml_config.remove_meter(camera_id, meter_id)
+        except ConfigError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    # Indicator CRUD endpoints
+
+    @router.get("/cameras/{camera_id}/indicators", response_model=list[IndicatorConfigResponse])
+    async def list_indicators(camera_id: str):
+        """List all indicators for a camera."""
+        cam = yaml_config.get_camera(camera_id)
+        if not cam:
+            raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
+        return [_indicator_to_response(i) for i in cam.indicators]
+
+    @router.get("/cameras/{camera_id}/indicators/{indicator_id}", response_model=IndicatorConfigResponse)
+    async def get_indicator(camera_id: str, indicator_id: str):
+        """Get a single indicator configuration."""
+        indicator = yaml_config.get_indicator(camera_id, indicator_id)
+        if not indicator:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Indicator '{indicator_id}' not found in camera '{camera_id}'",
+            )
+        return _indicator_to_response(indicator)
+
+    @router.post("/cameras/{camera_id}/indicators", response_model=IndicatorConfigResponse, status_code=201)
+    async def create_indicator(camera_id: str, request: IndicatorConfigRequest):
+        """Create a new indicator for a camera."""
+        try:
+            indicator = yaml_config.add_indicator(
+                camera_id=camera_id,
+                indicator_id=request.id,
+                name=request.name,
+                points=request.perspective.points,
+                output_size=request.perspective.output_size,
+                detection_mode=request.detection.mode,
+                threshold=request.detection.threshold,
+                on_color=request.detection.on_color,
+                show_on_dashboard=request.show_on_dashboard,
+            )
+            # Hot-reload indicators to running worker
+            cam = yaml_config.get_camera(camera_id)
+            if cam:
+                camera_manager.update_camera_indicators(camera_id, cam.indicators)
+            return _indicator_to_response(indicator)
+        except ConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.put("/cameras/{camera_id}/indicators/{indicator_id}", response_model=IndicatorConfigResponse)
+    async def update_indicator(camera_id: str, indicator_id: str, request: IndicatorUpdateRequest):
+        """Update an existing indicator."""
+        try:
+            points = None
+            output_size = None
+            detection_mode = None
+            threshold = None
+            on_color = None
+
+            if request.perspective:
+                points = request.perspective.points
+                output_size = request.perspective.output_size
+
+            if request.detection:
+                detection_mode = request.detection.mode
+                threshold = request.detection.threshold
+                on_color = request.detection.on_color
+
+            indicator = yaml_config.update_indicator(
+                camera_id=camera_id,
+                indicator_id=indicator_id,
+                name=request.name,
+                points=points,
+                output_size=output_size,
+                detection_mode=detection_mode,
+                threshold=threshold,
+                on_color=on_color,
+                show_on_dashboard=request.show_on_dashboard,
+            )
+            # Hot-reload indicators to running worker
+            cam = yaml_config.get_camera(camera_id)
+            if cam:
+                camera_manager.update_camera_indicators(camera_id, cam.indicators)
+            return _indicator_to_response(indicator)
+        except ConfigError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @router.delete("/cameras/{camera_id}/indicators/{indicator_id}", status_code=204)
+    async def delete_indicator(camera_id: str, indicator_id: str):
+        """Delete an indicator from a camera."""
+        try:
+            yaml_config.remove_indicator(camera_id, indicator_id)
+            # Hot-reload indicators to running worker
+            cam = yaml_config.get_camera(camera_id)
+            if cam:
+                camera_manager.update_camera_indicators(camera_id, cam.indicators)
         except ConfigError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
@@ -492,6 +661,58 @@ def create_frame_router(
             "debug_image": debug_b64,
             "recognized_text": recognized_text,
             "recognized_value": recognized_value,
+        }
+
+    @router.post("/preview/indicator", response_model=IndicatorPreviewResponse)
+    async def preview_indicator(request: IndicatorPreviewRequest):
+        """Preview indicator detection result.
+
+        Returns the transformed image and detection result.
+        """
+        # Get frame from camera
+        frame = camera_manager.get_latest_frame(request.camera_id)
+
+        if frame is None:
+            raise HTTPException(
+                status_code=503,
+                detail="No frame available. Camera may be disconnected.",
+            )
+
+        # Validate points
+        if len(request.points) != 4:
+            raise HTTPException(status_code=400, detail="Exactly 4 points required")
+
+        # Apply perspective transform
+        src_pts = np.array(request.points, dtype=np.float32)
+        output_w, output_h = request.output_size
+
+        dst_pts = np.array([
+            [0, 0],
+            [output_w - 1, 0],
+            [output_w - 1, output_h - 1],
+            [0, output_h - 1],
+        ], dtype=np.float32)
+
+        matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        transformed = cv2.warpPerspective(frame, matrix, (output_w, output_h))
+
+        # Run indicator detection
+        detector = IndicatorDetector(
+            detection_mode=request.detection_mode,
+            threshold=request.threshold,
+            on_color=request.on_color,
+        )
+
+        state, brightness, _ = detector.detect(transformed)
+
+        # Encode image to base64
+        _, transformed_jpeg = cv2.imencode(".jpg", transformed, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        transformed_b64 = base64.b64encode(transformed_jpeg.tobytes()).decode("utf-8")
+
+        return {
+            "transformed_image": transformed_b64,
+            "state": state,
+            "brightness": brightness,
         }
 
     return router

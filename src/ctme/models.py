@@ -60,6 +60,19 @@ class MeterConfigData:
 
 
 @dataclass(frozen=True)
+class IndicatorConfigData:
+    """Configuration for a single indicator/alarm light (immutable)."""
+
+    id: str
+    name: str
+    perspective: PerspectivePoints
+    detection_mode: str = "brightness"  # brightness or color
+    threshold: int = 128  # 0 = auto (Otsu), 1-255 = manual
+    on_color: str = "red"  # For color mode: red, green, blue
+    show_on_dashboard: bool = True
+
+
+@dataclass(frozen=True)
 class CameraConfigData:
     """Configuration for a single camera (immutable)."""
 
@@ -68,6 +81,7 @@ class CameraConfigData:
     url: str
     enabled: bool = True
     meters: tuple[MeterConfigData, ...] = field(default_factory=tuple)
+    indicators: tuple[IndicatorConfigData, ...] = field(default_factory=tuple)
     processing_interval_seconds: float = 1.0  # How often to process frames for recognition
 
 
@@ -179,4 +193,35 @@ class CameraRuntimeStatus:
     last_frame_time: datetime | None = None
     fps: float = 0.0
     meters: list[MeterStatus] = field(default_factory=list)
+    indicators: list["IndicatorStatus"] = field(default_factory=list)
     error_message: str = ""
+
+
+@dataclass
+class IndicatorReading:
+    """A single indicator reading (on/off state)."""
+
+    camera_id: str
+    indicator_id: str
+    state: bool  # True = ON, False = OFF
+    brightness: float  # Actual brightness value (0-255) for debugging
+    timestamp: datetime
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "camera_id": self.camera_id,
+            "indicator_id": self.indicator_id,
+            "state": self.state,
+            "brightness": self.brightness,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass
+class IndicatorStatus:
+    """Runtime status of an indicator."""
+
+    indicator_id: str
+    name: str
+    last_reading: IndicatorReading | None = None

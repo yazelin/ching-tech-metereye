@@ -4,10 +4,14 @@ import logging
 import queue
 import threading
 from abc import ABC, abstractmethod
+from typing import Union
 
-from ctme.models import Reading
+from ctme.models import IndicatorReading, Reading
 
 logger = logging.getLogger(__name__)
+
+# Union type for all reading types
+AnyReading = Union[Reading, IndicatorReading]
 
 
 class BaseExporter(ABC):
@@ -56,6 +60,36 @@ class BaseExporter(ABC):
         """
         pass
 
+    def export_indicator(self, reading: IndicatorReading) -> bool:
+        """Export a single indicator reading.
+
+        Default implementation does nothing. Subclasses can override.
+
+        Args:
+            reading: Indicator reading to export
+
+        Returns:
+            True if export succeeded, False otherwise
+        """
+        return True
+
+    def export_indicator_batch(self, readings: list[IndicatorReading]) -> bool:
+        """Export a batch of indicator readings.
+
+        Default implementation calls export_indicator for each.
+
+        Args:
+            readings: List of indicator readings to export
+
+        Returns:
+            True if all exports succeeded, False otherwise
+        """
+        success = True
+        for reading in readings:
+            if not self.export_indicator(reading):
+                success = False
+        return success
+
     def start(self) -> None:
         """Start the exporter (optional initialization)."""
         logger.info(f"Exporter started: {self.name}")
@@ -76,7 +110,9 @@ class ExporterManager:
         """
         self._exporters: list[BaseExporter] = []
         self._queue: queue.Queue[Reading] = queue.Queue(maxsize=max_queue_size)
+        self._indicator_queue: queue.Queue[IndicatorReading] = queue.Queue(maxsize=max_queue_size)
         self._worker_thread: threading.Thread | None = None
+        self._indicator_worker_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._batch_size = 10
         self._batch_timeout = 1.0  # seconds
@@ -114,6 +150,22 @@ class ExporterManager:
             return True
         except queue.Full:
             logger.warning("Export queue full, dropping reading")
+            return False
+
+    def push_indicator(self, reading: IndicatorReading) -> bool:
+        """Push an indicator reading to the export queue.
+
+        Args:
+            reading: Indicator reading to export
+
+        Returns:
+            True if queued successfully
+        """
+        try:
+            self._indicator_queue.put_nowait(reading)
+            return True
+        except queue.Full:
+            logger.warning("Indicator export queue full, dropping reading")
             return False
 
     def _worker(self) -> None:
@@ -161,8 +213,53 @@ class ExporterManager:
                     except Exception as e:
                         logger.error(f"Final export error ({exporter.name}): {e}")
 
+    def _indicator_worker(self) -> None:
+        """Background worker that processes the indicator export queue."""
+        batch: list[IndicatorReading] = []
+
+        while not self._stop_event.is_set():
+            try:
+                # Collect batch
+                while len(batch) < self._batch_size:
+                    try:
+                        reading = self._indicator_queue.get(timeout=self._batch_timeout)
+                        batch.append(reading)
+                    except queue.Empty:
+                        break
+
+                if not batch:
+                    continue
+
+                # Export to all exporters
+                for exporter in self._exporters:
+                    if not exporter.enabled:
+                        continue
+
+                    try:
+                        if len(batch) == 1:
+                            exporter.export_indicator(batch[0])
+                        else:
+                            exporter.export_indicator_batch(batch)
+                    except Exception as e:
+                        logger.error(f"Indicator export error ({exporter.name}): {e}")
+
+                batch.clear()
+
+            except Exception as e:
+                logger.error(f"Indicator export worker error: {e}")
+                batch.clear()
+
+        # Flush remaining on shutdown
+        if batch:
+            for exporter in self._exporters:
+                if exporter.enabled:
+                    try:
+                        exporter.export_indicator_batch(batch)
+                    except Exception as e:
+                        logger.error(f"Final indicator export error ({exporter.name}): {e}")
+
     def start(self) -> None:
-        """Start all exporters and the worker thread."""
+        """Start all exporters and the worker threads."""
         for exporter in self._exporters:
             try:
                 exporter.start()
@@ -176,15 +273,27 @@ class ExporterManager:
             daemon=True,
         )
         self._worker_thread.start()
+
+        self._indicator_worker_thread = threading.Thread(
+            target=self._indicator_worker,
+            name="IndicatorExportWorker",
+            daemon=True,
+        )
+        self._indicator_worker_thread.start()
+
         logger.info("Exporter manager started")
 
     def stop(self) -> None:
-        """Stop all exporters and the worker thread."""
+        """Stop all exporters and the worker threads."""
         self._stop_event.set()
 
         if self._worker_thread:
             self._worker_thread.join(timeout=5.0)
             self._worker_thread = None
+
+        if self._indicator_worker_thread:
+            self._indicator_worker_thread.join(timeout=5.0)
+            self._indicator_worker_thread = None
 
         for exporter in self._exporters:
             try:

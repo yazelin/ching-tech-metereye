@@ -169,7 +169,7 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card mb-3">
                 <div class="card-header">
                     <h2>Meters</h2>
                     <button class="btn btn-primary btn-sm" onclick="showAddMeterModal()">+ Add Meter</button>
@@ -177,6 +177,18 @@
                 <div class="card-body">
                     <div id="meterList" class="meter-list">
                         <!-- Meters loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Indicators</h2>
+                    <button class="btn btn-primary btn-sm" onclick="showAddIndicatorModal()">+ Add Indicator</button>
+                </div>
+                <div class="card-body">
+                    <div id="indicatorList" class="meter-list">
+                        <!-- Indicators loaded dynamically -->
                     </div>
                 </div>
             </div>
@@ -270,6 +282,10 @@
                                 <option value="4">4 digits</option>
                                 <option value="5">5 digits</option>
                                 <option value="6">6 digits</option>
+                                <option value="7">7 digits</option>
+                                <option value="8">8 digits</option>
+                                <option value="9">9 digits</option>
+                                <option value="10">10 digits</option>
                             </select>
                             <p class="form-hint">Fixed mode: divides ROI evenly by digit count (prevents merged digits issue)</p>
                         </div>
@@ -348,6 +364,140 @@
                 </div>
             </div>
         </div>
+
+        <!-- Indicator Edit Page -->
+        <div id="pageIndicatorEdit" class="page">
+            <nav class="breadcrumb">
+                <a href="#" onclick="showPage('pageCameraList')">Cameras</a>
+                <span class="breadcrumb-separator">/</span>
+                <a href="#" onclick="showCameraDetail(currentCameraId)" id="breadcrumbIndicatorCameraLink"></a>
+                <span class="breadcrumb-separator">/</span>
+                <span id="breadcrumbIndicatorName" class="breadcrumb-current"></span>
+            </nav>
+
+            <div class="perspective-editor">
+                <!-- Canvas Area -->
+                <div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h2>Indicator Area Selection</h2>
+                            <div class="flex gap-1">
+                                <button class="btn btn-secondary btn-sm" onclick="refreshIndicatorFrame()">Refresh</button>
+                                <button class="btn btn-danger btn-sm" onclick="indicatorPerspectiveSelector?.reset()">Reset Points</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="zoom-controls">
+                                <label>Zoom:</label>
+                                <button class="zoom-btn" onclick="indicatorZoomOut()">-</button>
+                                <input type="range" id="indicatorZoomSlider" min="50" max="500" value="100" onchange="setIndicatorZoomFromSlider()">
+                                <button class="zoom-btn" onclick="indicatorZoomIn()">+</button>
+                                <span class="zoom-value" id="indicatorZoomValue">100%</span>
+                                <button class="btn btn-secondary btn-sm" onclick="resetIndicatorZoom()">Fit</button>
+                            </div>
+                            <div class="canvas-container">
+                                <canvas id="indicatorPerspectiveCanvas"></canvas>
+                            </div>
+                            <p class="form-hint mt-1">
+                                Click to add points. Drag to move. Scroll to zoom. Ctrl+Drag to pan. Right-click to delete.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Output Size</h2>
+                            <span id="indicatorOutputSizeLabel" class="text-muted" style="font-size: 0.875rem;">100 x 50 px</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="output-size-inputs">
+                                <input type="number" id="indicatorOutputWidth" class="form-control" value="100" min="20" max="400">
+                                <span>x</span>
+                                <input type="number" id="indicatorOutputHeight" class="form-control" value="50" min="20" max="200">
+                                <span>px</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Panel -->
+                <div class="settings-panel">
+                    <div class="settings-section">
+                        <h3>Indicator Info</h3>
+                        <div class="form-group">
+                            <label class="form-label">Indicator ID</label>
+                            <input type="text" id="indicatorId" class="form-control" disabled>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" id="indicatorName" class="form-control" required>
+                        </div>
+                        <div class="form-group flex-between" style="margin-top: 1rem;">
+                            <label class="form-label" style="margin-bottom:0">Show on Dashboard</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="indicatorShowOnDashboard" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Detection Mode</h3>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="indicatorDetectionMode" id="detectionBrightness" value="brightness" checked>
+                                <label for="detectionBrightness">Brightness</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="indicatorDetectionMode" id="detectionColor" value="color">
+                                <label for="detectionColor">Color</label>
+                            </div>
+                        </div>
+                        <p class="form-hint">Brightness: detects if light is on/off by brightness level. Color: detects specific color presence.</p>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Threshold</h3>
+                        <div class="range-slider">
+                            <input type="range" id="indicatorThreshold" min="0" max="255" value="128">
+                            <span class="range-value" id="indicatorThresholdValue">128</span>
+                        </div>
+                        <p class="form-hint">0 = Auto (Otsu), 1-255 = Manual brightness threshold</p>
+                    </div>
+
+                    <div class="settings-section" id="colorSettings">
+                        <h3>On Color</h3>
+                        <select id="indicatorOnColor" class="form-control">
+                            <option value="red">Red</option>
+                            <option value="green">Green</option>
+                            <option value="blue">Blue</option>
+                            <option value="yellow">Yellow</option>
+                            <option value="orange">Orange</option>
+                        </select>
+                        <p class="form-hint">The color that indicates "ON" state</p>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Preview</h3>
+                        <div class="preview-panel">
+                            <div class="preview-image" id="indicatorPreviewTransformed">
+                                <div class="preview-loading">Select 4 points to preview</div>
+                            </div>
+                            <div class="preview-result">
+                                <div class="preview-result-value" id="indicatorPreviewState" style="font-size: 1.5rem;">--</div>
+                                <div class="preview-result-label">State</div>
+                                <div id="indicatorPreviewBrightness" style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">Brightness: --</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-1 mt-3">
+                        <button class="btn btn-success" onclick="saveIndicator()">Save Indicator</button>
+                        <button class="btn btn-danger" onclick="deleteIndicator()">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Add Camera Modal -->
@@ -404,6 +554,33 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="hideModal('addMeterModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="addMeter()">Add Meter</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Indicator Modal -->
+    <div id="addIndicatorModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Indicator</h3>
+                <button class="modal-close" onclick="hideModal('addIndicatorModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addIndicatorForm">
+                    <div class="form-group">
+                        <label class="form-label">Indicator ID</label>
+                        <input type="text" id="newIndicatorId" class="form-control" placeholder="fire-alarm-01" required pattern="[a-z0-9-]+">
+                        <p class="form-hint">Lowercase letters, numbers, and dashes only</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input type="text" id="newIndicatorName" class="form-control" placeholder="Fire Alarm Light" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('addIndicatorModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="addIndicator()">Add Indicator</button>
             </div>
         </div>
     </div>
@@ -577,8 +754,9 @@
                 document.getElementById('processingInterval').value = cam.processing_interval_seconds || 1.0;
                 updateProcessingIntervalDisplay();
 
-                // Load meters
+                // Load meters and indicators
                 await loadMeters(cameraId);
+                await loadIndicators(cameraId);
 
                 showPage('pageCameraDetail');
             } catch (e) {
@@ -1021,6 +1199,355 @@
                 return 'You have unsaved changes. Are you sure you want to leave?';
             }
         };
+
+        // ========== INDICATOR FUNCTIONS ==========
+        let currentIndicatorId = null;
+        let indicatorPerspectiveSelector = null;
+        let indicatorPreviewDebounceTimer = null;
+
+        // Indicator List
+        async function loadIndicators(cameraId) {
+            try {
+                const indicators = await api('GET', `/api/config/cameras/${cameraId}/indicators`);
+                renderIndicatorList(indicators);
+            } catch (e) {
+                // No indicators endpoint yet, render empty
+                renderIndicatorList([]);
+            }
+        }
+
+        function renderIndicatorList(indicators) {
+            const list = document.getElementById('indicatorList');
+
+            if (!indicators || indicators.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💡</div>
+                        <div class="empty-state-title">No indicators configured</div>
+                        <p>Click "Add Indicator" to configure an alarm light detection area</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = indicators.map(ind => `
+                <div class="meter-item">
+                    <div class="meter-info">
+                        <span class="meter-name">${ind.name}</span>
+                        <span class="meter-reading">${ind.id}</span>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="showIndicatorEdit('${currentCameraId}', '${ind.id}')">
+                        Configure
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Add Indicator
+        function showAddIndicatorModal() {
+            document.getElementById('addIndicatorForm').reset();
+            showModal('addIndicatorModal');
+        }
+
+        async function addIndicator() {
+            const id = document.getElementById('newIndicatorId').value.trim();
+            const name = document.getElementById('newIndicatorName').value.trim();
+
+            if (!id || !name) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+
+            try {
+                await api('POST', `/api/config/cameras/${currentCameraId}/indicators`, {
+                    id,
+                    name,
+                    perspective: {
+                        points: [[100, 50], [200, 50], [200, 100], [100, 100]],
+                        output_size: [100, 50]
+                    },
+                    detection: {
+                        mode: 'brightness',
+                        threshold: 128,
+                        on_color: 'red'
+                    }
+                });
+                hideModal('addIndicatorModal');
+                showToast('Indicator added successfully', 'success');
+
+                // Go to indicator edit
+                showIndicatorEdit(currentCameraId, id);
+            } catch (e) {
+                showToast('Failed to add indicator: ' + e.message, 'error');
+            }
+        }
+
+        // Indicator Edit
+        async function showIndicatorEdit(cameraId, indicatorId) {
+            currentCameraId = cameraId;
+            currentIndicatorId = indicatorId;
+
+            try {
+                // Load camera name for breadcrumb
+                const cam = await api('GET', `/api/config/cameras/${cameraId}`);
+                document.getElementById('breadcrumbIndicatorCameraLink').textContent = cam.name;
+
+                // Load indicator
+                const indicator = await api('GET', `/api/config/cameras/${cameraId}/indicators/${indicatorId}`);
+
+                document.getElementById('breadcrumbIndicatorName').textContent = indicator.name;
+                document.getElementById('indicatorId').value = indicator.id;
+                document.getElementById('indicatorName').value = indicator.name;
+                document.getElementById('indicatorShowOnDashboard').checked = indicator.show_on_dashboard !== false;
+
+                // Detection settings
+                const mode = indicator.detection?.mode || 'brightness';
+                document.querySelector(`input[name="indicatorDetectionMode"][value="${mode}"]`).checked = true;
+                document.getElementById('indicatorThreshold').value = indicator.detection?.threshold || 128;
+                document.getElementById('indicatorOnColor').value = indicator.detection?.on_color || 'red';
+                updateIndicatorThresholdDisplay();
+                updateColorSettingsVisibility();
+
+                // Output size
+                document.getElementById('indicatorOutputWidth').value = indicator.perspective?.output_size?.[0] || 100;
+                document.getElementById('indicatorOutputHeight').value = indicator.perspective?.output_size?.[1] || 50;
+                updateIndicatorOutputSizeLabel();
+
+                showPage('pageIndicatorEdit');
+
+                // Initialize perspective selector
+                await initIndicatorPerspectiveSelector(cameraId, indicator.perspective?.points || []);
+
+            } catch (e) {
+                showToast('Failed to load indicator: ' + e.message, 'error');
+            }
+        }
+
+        async function initIndicatorPerspectiveSelector(cameraId, points) {
+            const canvas = document.getElementById('indicatorPerspectiveCanvas');
+
+            // Destroy existing selector
+            if (indicatorPerspectiveSelector) {
+                indicatorPerspectiveSelector.destroy();
+            }
+
+            // Create new selector
+            indicatorPerspectiveSelector = new PerspectiveSelector(canvas, {
+                onPointsChange: (orderedPoints) => {
+                    hasUnsavedChanges = true;
+                    if (orderedPoints) {
+                        debounceIndicatorPreview();
+                    }
+                }
+            });
+
+            // Update zoom display when zoom changes
+            indicatorPerspectiveSelector.onZoomChange = (scale) => {
+                const percent = Math.round(scale * 100);
+                document.getElementById('indicatorZoomValue').textContent = percent + '%';
+                document.getElementById('indicatorZoomSlider').value = percent;
+            };
+
+            // Load frame
+            try {
+                await indicatorPerspectiveSelector.setImage(`/api/frame/${cameraId}?t=${Date.now()}`);
+                if (points && points.length === 4) {
+                    indicatorPerspectiveSelector.setPoints(points);
+                    updateIndicatorPreview();
+                }
+            } catch (e) {
+                showToast('Failed to load camera frame', 'error');
+            }
+        }
+
+        async function refreshIndicatorFrame() {
+            if (indicatorPerspectiveSelector && currentCameraId) {
+                const points = indicatorPerspectiveSelector.getPoints();
+                try {
+                    await indicatorPerspectiveSelector.setImage(`/api/frame/${currentCameraId}?t=${Date.now()}`);
+                    if (points) {
+                        indicatorPerspectiveSelector.setPoints(points);
+                    }
+                    updateIndicatorPreview();
+                } catch (e) {
+                    showToast('Failed to refresh frame', 'error');
+                }
+            }
+        }
+
+        // Zoom Controls for Indicator
+        function indicatorZoomIn() {
+            if (indicatorPerspectiveSelector) {
+                indicatorPerspectiveSelector.setZoom(indicatorPerspectiveSelector.scale * 1.25);
+            }
+        }
+
+        function indicatorZoomOut() {
+            if (indicatorPerspectiveSelector) {
+                indicatorPerspectiveSelector.setZoom(indicatorPerspectiveSelector.scale * 0.8);
+            }
+        }
+
+        function setIndicatorZoomFromSlider() {
+            if (indicatorPerspectiveSelector) {
+                const percent = parseInt(document.getElementById('indicatorZoomSlider').value);
+                indicatorPerspectiveSelector.setZoom(percent / 100);
+            }
+        }
+
+        function resetIndicatorZoom() {
+            if (indicatorPerspectiveSelector) {
+                indicatorPerspectiveSelector.resetView();
+            }
+        }
+
+        // Threshold Display for Indicator
+        function updateIndicatorThresholdDisplay() {
+            const value = document.getElementById('indicatorThreshold').value;
+            document.getElementById('indicatorThresholdValue').textContent = value === '0' ? 'Auto' : value;
+        }
+
+        document.getElementById('indicatorThreshold').oninput = () => {
+            updateIndicatorThresholdDisplay();
+            debounceIndicatorPreview();
+        };
+
+        // Update output size label for indicator
+        function updateIndicatorOutputSizeLabel() {
+            const w = document.getElementById('indicatorOutputWidth').value || 100;
+            const h = document.getElementById('indicatorOutputHeight').value || 50;
+            document.getElementById('indicatorOutputSizeLabel').textContent = `${w} x ${h} px`;
+        }
+
+        // Show/hide color settings based on mode
+        function updateColorSettingsVisibility() {
+            const mode = document.querySelector('input[name="indicatorDetectionMode"]:checked').value;
+            document.getElementById('colorSettings').style.display = mode === 'color' ? 'block' : 'none';
+        }
+
+        // Event listeners for indicator settings
+        document.querySelectorAll('input[name="indicatorDetectionMode"]').forEach(el => {
+            el.onchange = () => {
+                updateColorSettingsVisibility();
+                debounceIndicatorPreview();
+            };
+        });
+        document.getElementById('indicatorOnColor').onchange = debounceIndicatorPreview;
+        document.getElementById('indicatorOutputWidth').onchange = () => { updateIndicatorOutputSizeLabel(); debounceIndicatorPreview(); };
+        document.getElementById('indicatorOutputHeight').onchange = () => { updateIndicatorOutputSizeLabel(); debounceIndicatorPreview(); };
+        document.getElementById('indicatorOutputWidth').oninput = updateIndicatorOutputSizeLabel;
+        document.getElementById('indicatorOutputHeight').oninput = updateIndicatorOutputSizeLabel;
+
+        // Preview for Indicator
+        function debounceIndicatorPreview() {
+            clearTimeout(indicatorPreviewDebounceTimer);
+            indicatorPreviewDebounceTimer = setTimeout(updateIndicatorPreview, 300);
+        }
+
+        async function updateIndicatorPreview() {
+            const points = indicatorPerspectiveSelector?.getPoints();
+            if (!points || points.length !== 4) {
+                document.getElementById('indicatorPreviewTransformed').innerHTML = '<div class="preview-loading">Select 4 points to preview</div>';
+                document.getElementById('indicatorPreviewState').textContent = '--';
+                document.getElementById('indicatorPreviewBrightness').textContent = 'Brightness: --';
+                return;
+            }
+
+            const detectionMode = document.querySelector('input[name="indicatorDetectionMode"]:checked').value;
+            const threshold = parseInt(document.getElementById('indicatorThreshold').value);
+            const onColor = document.getElementById('indicatorOnColor').value;
+            const outputWidth = parseInt(document.getElementById('indicatorOutputWidth').value) || 100;
+            const outputHeight = parseInt(document.getElementById('indicatorOutputHeight').value) || 50;
+
+            try {
+                const result = await api('POST', '/api/preview/indicator', {
+                    camera_id: currentCameraId,
+                    points,
+                    output_size: [outputWidth, outputHeight],
+                    detection_mode: detectionMode,
+                    threshold,
+                    on_color: onColor
+                });
+
+                document.getElementById('indicatorPreviewTransformed').innerHTML =
+                    `<img src="data:image/jpeg;base64,${result.transformed_image}" alt="Transformed">`;
+
+                const stateEl = document.getElementById('indicatorPreviewState');
+                if (result.state === true) {
+                    stateEl.textContent = 'ON';
+                    stateEl.style.color = 'var(--danger)';
+                } else if (result.state === false) {
+                    stateEl.textContent = 'OFF';
+                    stateEl.style.color = 'var(--text-muted)';
+                } else {
+                    stateEl.textContent = '--';
+                    stateEl.style.color = 'var(--text-primary)';
+                }
+
+                document.getElementById('indicatorPreviewBrightness').textContent =
+                    `Brightness: ${result.brightness?.toFixed(1) || '--'}`;
+
+            } catch (e) {
+                // Preview endpoint may not exist yet
+                document.getElementById('indicatorPreviewTransformed').innerHTML = '<div class="preview-loading">Preview not available</div>';
+            }
+        }
+
+        // Save Indicator
+        async function saveIndicator() {
+            const points = indicatorPerspectiveSelector?.getPoints();
+            if (!points || points.length !== 4) {
+                showToast('Please select 4 perspective points', 'error');
+                return;
+            }
+
+            const data = {
+                name: document.getElementById('indicatorName').value.trim(),
+                perspective: {
+                    points,
+                    output_size: [
+                        parseInt(document.getElementById('indicatorOutputWidth').value) || 100,
+                        parseInt(document.getElementById('indicatorOutputHeight').value) || 50
+                    ]
+                },
+                detection: {
+                    mode: document.querySelector('input[name="indicatorDetectionMode"]:checked').value,
+                    threshold: parseInt(document.getElementById('indicatorThreshold').value),
+                    on_color: document.getElementById('indicatorOnColor').value
+                },
+                show_on_dashboard: document.getElementById('indicatorShowOnDashboard').checked
+            };
+
+            try {
+                await api('PUT', `/api/config/cameras/${currentCameraId}/indicators/${currentIndicatorId}`, data);
+                // Save to file and apply changes
+                await saveConfigToFile();
+                await reloadConfig();
+                hasUnsavedChanges = false;
+                notifyConfigChange();
+                showToast('Indicator saved and applied', 'success');
+            } catch (e) {
+                showToast('Failed to save indicator: ' + e.message, 'error');
+            }
+        }
+
+        // Delete Indicator
+        function deleteIndicator() {
+            showConfirm(
+                'Delete Indicator',
+                `Are you sure you want to delete indicator "${currentIndicatorId}"?`,
+                async () => {
+                    try {
+                        await api('DELETE', `/api/config/cameras/${currentCameraId}/indicators/${currentIndicatorId}`);
+                        notifyConfigChange();
+                        showToast('Indicator deleted', 'success');
+                        showCameraDetail(currentCameraId);
+                    } catch (e) {
+                        showToast('Failed to delete indicator: ' + e.message, 'error');
+                    }
+                }
+            );
+        }
 
         // Initialize
         loadCameras();

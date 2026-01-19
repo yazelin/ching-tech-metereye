@@ -25,11 +25,13 @@ except ImportError:
     pass
 
 from ctme.export.base import BaseExporter
-from ctme.models import DatabaseExportConfig, Reading
+from ctme.models import DatabaseExportConfig, IndicatorReading, Reading
 
 logger = logging.getLogger(__name__)
 
 if SQLALCHEMY_AVAILABLE:
+    from sqlalchemy import Boolean
+
     Base = declarative_base()
 
     class ReadingRecord(Base):
@@ -47,6 +49,22 @@ if SQLALCHEMY_AVAILABLE:
 
         __table_args__ = (
             Index("idx_camera_meter_time", "camera_id", "meter_id", "timestamp"),
+        )
+
+    class IndicatorReadingRecord(Base):
+        """SQLAlchemy model for indicator readings."""
+
+        __tablename__ = "indicator_readings"
+
+        id = Column(Integer, primary_key=True, autoincrement=True)
+        camera_id = Column(String(64), nullable=False, index=True)
+        indicator_id = Column(String(64), nullable=False, index=True)
+        state = Column(Boolean, nullable=False)  # True = ON, False = OFF
+        brightness = Column(Float, nullable=False)
+        timestamp = Column(DateTime, nullable=False, index=True)
+
+        __table_args__ = (
+            Index("idx_camera_indicator_time", "camera_id", "indicator_id", "timestamp"),
         )
 
 
@@ -130,15 +148,25 @@ class DatabaseExporter(BaseExporter):
 
         try:
             cutoff = now - timedelta(days=self.config.retention_days)
-            deleted = (
+
+            # Clean up meter readings
+            deleted_readings = (
                 session.query(ReadingRecord)
                 .filter(ReadingRecord.timestamp < cutoff)
                 .delete()
             )
 
-            if deleted > 0:
+            # Clean up indicator readings
+            deleted_indicators = (
+                session.query(IndicatorReadingRecord)
+                .filter(IndicatorReadingRecord.timestamp < cutoff)
+                .delete()
+            )
+
+            total_deleted = deleted_readings + deleted_indicators
+            if total_deleted > 0:
                 session.commit()
-                logger.info(f"Cleaned up {deleted} old records")
+                logger.info(f"Cleaned up {total_deleted} old records ({deleted_readings} readings, {deleted_indicators} indicators)")
 
             self._last_cleanup = now
 
@@ -286,4 +314,143 @@ class DatabaseExporter(BaseExporter):
 
         except Exception as e:
             logger.error(f"Database query failed: {e}")
+            return []
+
+    def export_indicator(self, reading: IndicatorReading) -> bool:
+        """Export a single indicator reading to database.
+
+        Args:
+            reading: Indicator reading to export
+
+        Returns:
+            True if export succeeded
+        """
+        if not self._enabled or not self._session_factory:
+            return True
+
+        try:
+            session = self._session_factory()
+            try:
+                record = IndicatorReadingRecord(
+                    camera_id=reading.camera_id,
+                    indicator_id=reading.indicator_id,
+                    state=reading.state,
+                    brightness=reading.brightness,
+                    timestamp=reading.timestamp,
+                )
+                session.add(record)
+                session.commit()
+
+                # Periodic cleanup
+                self._cleanup_old_records(session)
+
+                return True
+
+            finally:
+                session.close()
+
+        except Exception as e:
+            logger.error(f"Database indicator export failed: {e}")
+            return False
+
+    def export_indicator_batch(self, readings: list[IndicatorReading]) -> bool:
+        """Export a batch of indicator readings to database.
+
+        Args:
+            readings: List of indicator readings to export
+
+        Returns:
+            True if export succeeded
+        """
+        if not self._enabled or not self._session_factory:
+            return True
+
+        if not readings:
+            return True
+
+        try:
+            session = self._session_factory()
+            try:
+                records = [
+                    IndicatorReadingRecord(
+                        camera_id=r.camera_id,
+                        indicator_id=r.indicator_id,
+                        state=r.state,
+                        brightness=r.brightness,
+                        timestamp=r.timestamp,
+                    )
+                    for r in readings
+                ]
+                session.add_all(records)
+                session.commit()
+
+                # Periodic cleanup
+                self._cleanup_old_records(session)
+
+                return True
+
+            finally:
+                session.close()
+
+        except Exception as e:
+            logger.error(f"Database indicator batch export failed: {e}")
+            return False
+
+    def query_indicator_history(
+        self,
+        camera_id: str | None = None,
+        indicator_id: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        limit: int = 100,
+    ) -> list[IndicatorReading]:
+        """Query historical indicator readings.
+
+        Args:
+            camera_id: Filter by camera ID
+            indicator_id: Filter by indicator ID
+            start_time: Start of time range
+            end_time: End of time range
+            limit: Maximum number of records
+
+        Returns:
+            List of indicator readings
+        """
+        if not self._enabled or not self._session_factory:
+            return []
+
+        try:
+            session = self._session_factory()
+            try:
+                query = session.query(IndicatorReadingRecord)
+
+                if camera_id:
+                    query = query.filter(IndicatorReadingRecord.camera_id == camera_id)
+                if indicator_id:
+                    query = query.filter(IndicatorReadingRecord.indicator_id == indicator_id)
+                if start_time:
+                    query = query.filter(IndicatorReadingRecord.timestamp >= start_time)
+                if end_time:
+                    query = query.filter(IndicatorReadingRecord.timestamp <= end_time)
+
+                query = query.order_by(IndicatorReadingRecord.timestamp.desc()).limit(limit)
+
+                records = query.all()
+
+                return [
+                    IndicatorReading(
+                        camera_id=r.camera_id,
+                        indicator_id=r.indicator_id,
+                        state=r.state,
+                        brightness=r.brightness,
+                        timestamp=r.timestamp,
+                    )
+                    for r in records
+                ]
+
+            finally:
+                session.close()
+
+        except Exception as e:
+            logger.error(f"Database indicator query failed: {e}")
             return []
